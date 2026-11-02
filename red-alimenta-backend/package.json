@@ -10,9 +10,10 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
-    "prisma:push": "prisma db push",
-    "test": "npm run build"
+    "prisma:migrate": "prisma migrate deploy",
+    "admin:create": "tsx src/scripts/bootstrapAdmin.ts",
+    "test": "npm run build && npm run test:unit",
+    "test:unit": "tsx --test src/lib/auth.test.ts"
   },
   "keywords": [],
   "author": "",
@@ -23,15 +24,18 @@
     "cors": "^2.8.6",
     "dotenv": "^18.0.7",
     "express": "^5.3.0",
+    "express-rate-limit": "^8.7.2",
+    "helmet": "^8.3.0",
     "morgan": "^1.12.1",
+    "multer": "^2.5.0",
     "prisma": "^5.22.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.3.0",
     "@types/node": "^26.6.5",
-    "nodemon": "^3.1.14",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

@@ -7,38 +7,431 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Producto {
-  id            Int       @id @default(autoincrement())
-  nombre        String    @db.VarChar(191)
-  categoria     String    @db.VarChar(191)
-  unidad        String    @db.VarChar(191)
-  stock_actual  Int       @default(0)
-  activo        Boolean   @default(true)
+enum RolUsuario {
+  ADMIN_GENERAL
+  BANCO
+  DONANTE
+  BENEFICIARIO
+
+  @@map("rol_usuario")
+}
+
+enum EstadoCuenta {
+  ACTIVA
+  PENDIENTE
+  SUSPENDIDA
+  RECHAZADA
+
+  @@map("estado_cuenta")
+}
+
+enum EstadoBanco {
+  ACTIVO
+  SUSPENDIDO
+
+  @@map("estado_banco")
+}
+
+enum NivelMembresiaBanco {
+  ADMINISTRADOR
+  OPERADOR
+
+  @@map("nivel_membresia_banco")
+}
+
+enum EstadoVerificacion {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+
+  @@map("estado_verificacion")
+}
+
+enum EstadoSolicitudRegistro {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+
+  @@map("estado_solicitud_registro")
+}
+
+enum EstadoDonacion {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+
+  @@map("estado_donacion")
+}
+
+enum EstadoSolicitudAlimentos {
+  PENDIENTE
+  APROBADA
+  APROBADA_PARCIALMENTE
+  RECHAZADA
+  ENTREGADA
+  CANCELADA
+
+  @@map("estado_solicitud_alimentos")
+}
+
+enum EstadoEntrega {
+  REGISTRADA
+  CONFIRMADA
+
+  @@map("estado_entrega")
+}
+
+enum TipoMovimientoInventario {
+  DONACION_ACEPTADA
+  ENTREGA_REGISTRADA
+  AJUSTE_ENTRADA
+  AJUSTE_SALIDA
+
+  @@map("tipo_movimiento_inventario")
+}
+
+model Usuario {
+  id                           Int                    @id @default(autoincrement())
+  nombre                       String                 @db.VarChar(150)
+  email                        String                 @unique @db.VarChar(191)
+  passwordHash                 String                 @map("password_hash") @db.VarChar(255)
+  rol                          RolUsuario
+  estado                       EstadoCuenta           @default(ACTIVA)
+  telefono                     String?                @db.VarChar(30)
+  createdAt                    DateTime               @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                    DateTime               @updatedAt @map("updated_at") @db.DateTime(3)
+  sesiones                     Sesion[]
+  membresias                   MembresiaBanco[]
+  donante                      Donante?
+  beneficiario                 Beneficiario?
+  solicitudesRegistroEnviadas  SolicitudRegistro[]    @relation("SolicitudRegistroSolicitante")
+  solicitudesRegistroRevisadas SolicitudRegistro[]    @relation("SolicitudRegistroRevisor")
+  donacionesRevisadas          Donacion[]             @relation("DonacionRevisor")
+  solicitudesRevisadas         SolicitudAlimentos[]   @relation("SolicitudAlimentosRevisor")
+  entregasRegistradas          Entrega[]              @relation("EntregaRegistrador")
+  entregasConfirmadas          Entrega[]              @relation("EntregaConfirmador")
+  movimientosInventario        MovimientoInventario[]
+  auditorias                   Auditoria[]
+
+  @@index([rol, estado])
+  @@map("usuarios")
+}
+
+model Sesion {
+  id         String    @id @default(uuid()) @db.Char(36)
+  usuarioId  Int       @map("usuario_id")
+  expiraEn   DateTime  @map("expira_en") @db.DateTime(3)
+  revocadaEn DateTime? @map("revocada_en") @db.DateTime(3)
+  creadaEn   DateTime  @default(now()) @map("creada_en") @db.DateTime(3)
+  usuario    Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, revocadaEn])
+  @@index([expiraEn])
+  @@map("sesiones")
+}
+
+model BancoAlimentos {
+  id            Int                    @id @default(autoincrement())
+  nombre        String                 @unique @db.VarChar(191)
+  nit           String?                @unique @db.VarChar(30)
+  descripcion   String?                @db.Text
+  departamento  String                 @db.VarChar(100)
+  municipio     String                 @db.VarChar(100)
+  direccion     String?                @db.VarChar(255)
+  telefono      String?                @db.VarChar(30)
+  estado        EstadoBanco            @default(ACTIVO)
+  creadoEn      DateTime               @default(now()) @map("creado_en") @db.DateTime(3)
+  actualizadoEn DateTime               @updatedAt @map("actualizado_en") @db.DateTime(3)
+  membresias    MembresiaBanco[]
+  coberturas    CoberturaBanco[]
+  inventarios   Inventario[]
   donaciones    Donacion[]
+  solicitudes   SolicitudAlimentos[]
   entregas      Entrega[]
+  movimientos   MovimientoInventario[]
+  auditorias    Auditoria[]
+
+  @@index([departamento, municipio, estado])
+  @@map("bancos_alimentos")
+}
+
+model CoberturaBanco {
+  id           Int            @id @default(autoincrement())
+  bancoId      Int            @map("banco_id")
+  departamento String         @db.VarChar(100)
+  municipio    String         @default("*") @db.VarChar(100)
+  banco        BancoAlimentos @relation(fields: [bancoId], references: [id], onDelete: Restrict)
+
+  @@unique([bancoId, departamento, municipio])
+  @@index([departamento, municipio])
+  @@map("coberturas_banco")
+}
+
+model MembresiaBanco {
+  id        Int                 @id @default(autoincrement())
+  usuarioId Int                 @map("usuario_id")
+  bancoId   Int                 @map("banco_id")
+  nivel     NivelMembresiaBanco @default(OPERADOR)
+  creadaEn  DateTime            @default(now()) @map("creada_en") @db.DateTime(3)
+  usuario   Usuario             @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  banco     BancoAlimentos      @relation(fields: [bancoId], references: [id], onDelete: Restrict)
+
+  @@unique([usuarioId, bancoId])
+  @@index([bancoId, nivel])
+  @@map("membresias_banco")
+}
+
+model Donante {
+  id           Int        @id @default(autoincrement())
+  usuarioId    Int        @unique @map("usuario_id")
+  organizacion String?    @db.VarChar(191)
+  direccion    String?    @db.VarChar(255)
+  creadoEn     DateTime   @default(now()) @map("creado_en") @db.DateTime(3)
+  usuario      Usuario    @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  donaciones   Donacion[]
+
+  @@map("donantes")
+}
+
+model Beneficiario {
+  id                  Int                  @id @default(autoincrement())
+  usuarioId           Int                  @unique @map("usuario_id")
+  nombreOrganizacion  String               @map("nombre_organizacion") @db.VarChar(191)
+  nit                 String?              @unique @db.VarChar(30)
+  tipoOrganizacion    String               @map("tipo_organizacion") @db.VarChar(100)
+  departamento        String               @db.VarChar(100)
+  municipio           String               @db.VarChar(100)
+  direccion           String               @db.VarChar(255)
+  telefono            String?              @db.VarChar(30)
+  estadoVerificacion  EstadoVerificacion   @default(PENDIENTE) @map("estado_verificacion")
+  creadoEn            DateTime             @default(now()) @map("creado_en") @db.DateTime(3)
+  actualizadoEn       DateTime             @updatedAt @map("actualizado_en") @db.DateTime(3)
+  usuario             Usuario              @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  solicitudesRegistro SolicitudRegistro[]
+  solicitudes         SolicitudAlimentos[]
+  donaciones          Donacion[]
+  entregas            Entrega[]
+
+  @@index([departamento, municipio, estadoVerificacion])
+  @@map("beneficiarios")
+}
+
+model SolicitudRegistro {
+  id                    Int                     @id @default(autoincrement())
+  beneficiarioId        Int                     @map("beneficiario_id")
+  solicitanteId         Int                     @map("solicitante_id")
+  estado                EstadoSolicitudRegistro @default(PENDIENTE)
+  observaciones         String?                 @db.Text
+  observacionesRevision String?                 @map("observaciones_revision") @db.Text
+  revisadaPorId         Int?                    @map("revisada_por_id")
+  creadaEn              DateTime                @default(now()) @map("creada_en") @db.DateTime(3)
+  revisadaEn            DateTime?               @map("revisada_en") @db.DateTime(3)
+  beneficiario          Beneficiario            @relation(fields: [beneficiarioId], references: [id], onDelete: Restrict)
+  solicitante           Usuario                 @relation("SolicitudRegistroSolicitante", fields: [solicitanteId], references: [id], onDelete: Restrict)
+  revisadaPor           Usuario?                @relation("SolicitudRegistroRevisor", fields: [revisadaPorId], references: [id], onDelete: SetNull)
+  documentos            DocumentoVerificacion[]
+
+  @@index([estado, creadaEn])
+  @@index([beneficiarioId, estado])
+  @@map("solicitudes_registro")
+}
+
+model DocumentoVerificacion {
+  id                  Int               @id @default(autoincrement())
+  solicitudRegistroId Int               @map("solicitud_registro_id")
+  nombreOriginal      String            @map("nombre_original") @db.VarChar(255)
+  nombreAlmacenado    String            @unique @map("nombre_almacenado") @db.VarChar(100)
+  tipoMime            String            @map("tipo_mime") @db.VarChar(100)
+  tamanoBytes         Int               @map("tamano_bytes")
+  creadoEn            DateTime          @default(now()) @map("creado_en") @db.DateTime(3)
+  solicitudRegistro   SolicitudRegistro @relation(fields: [solicitudRegistroId], references: [id], onDelete: Restrict)
+
+  @@index([solicitudRegistroId])
+  @@map("documentos_verificacion")
+}
+
+model Producto {
+  id                Int                    @id @default(autoincrement())
+  nombre            String                 @db.VarChar(191)
+  categoria         String                 @db.VarChar(191)
+  unidad            String                 @db.VarChar(191)
+  stock_actual      Int                    @default(0)
+  activo            Boolean                @default(true)
+  donaciones        Donacion[]
+  entregas          Entrega[]
+  inventarios       Inventario[]
+  detallesSolicitud DetalleSolicitud[]
+  detallesEntrega   DetalleEntrega[]
+  movimientos       MovimientoInventario[]
 
   @@unique([nombre], map: "productos_nombre_key")
   @@map("productos")
 }
 
-model Donacion {
-  id                    Int       @id @default(autoincrement())
-  producto_id           Int
-  cantidad              Int
-  fecha                 DateTime  @default(now())
-  donante_referencia    String    @db.VarChar(191)
-  producto              Producto  @relation(fields: [producto_id], references: [id])
+model Inventario {
+  id             Int                    @id @default(autoincrement())
+  bancoId        Int                    @map("banco_id")
+  productoId     Int                    @map("producto_id")
+  stockActual    Int                    @default(0) @map("stock_actual")
+  stockReservado Int                    @default(0) @map("stock_reservado")
+  publicado      Boolean                @default(false)
+  activo         Boolean                @default(true)
+  actualizadoEn  DateTime               @updatedAt @map("actualizado_en") @db.DateTime(3)
+  banco          BancoAlimentos         @relation(fields: [bancoId], references: [id], onDelete: Restrict)
+  producto       Producto               @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  movimientos    MovimientoInventario[]
 
+  @@unique([bancoId, productoId])
+  @@index([bancoId, publicado, activo])
+  @@map("inventarios")
+}
+
+model Donacion {
+  id                 Int                    @id @default(autoincrement())
+  producto_id        Int
+  cantidad           Int
+  fecha              DateTime               @default(now()) @db.DateTime(3)
+  donante_referencia String                 @db.VarChar(191)
+  bancoId            Int                    @map("banco_id")
+  donanteId          Int?                   @map("donante_id")
+  beneficiarioId     Int?                   @map("beneficiario_id")
+  estado             EstadoDonacion         @default(PENDIENTE)
+  fechaVencimiento   DateTime?              @map("fecha_vencimiento") @db.DateTime(3)
+  observaciones      String?                @db.Text
+  revisadaPorId      Int?                   @map("revisada_por_id")
+  revisadaEn         DateTime?              @map("revisada_en") @db.DateTime(3)
+  banco              BancoAlimentos         @relation(fields: [bancoId], references: [id], onDelete: Restrict)
+  donante            Donante?               @relation(fields: [donanteId], references: [id], onDelete: Restrict)
+  beneficiario       Beneficiario?          @relation(fields: [beneficiarioId], references: [id], onDelete: Restrict)
+  producto           Producto               @relation(fields: [producto_id], references: [id], onDelete: Restrict)
+  revisadaPor        Usuario?               @relation("DonacionRevisor", fields: [revisadaPorId], references: [id], onDelete: SetNull)
+  movimientos        MovimientoInventario[]
+
+  @@index([bancoId, estado, fecha])
+  @@index([donanteId, fecha])
   @@map("donaciones")
 }
 
-model Entrega {
-  id                     Int       @id @default(autoincrement())
-  producto_id            Int
-  cantidad               Int
-  fecha                  DateTime  @default(now())
-  beneficiario_referencia String    @db.VarChar(191)
-  producto               Producto  @relation(fields: [producto_id], references: [id])
+model SolicitudAlimentos {
+  id                Int                      @id @default(autoincrement())
+  beneficiarioId    Int                      @map("beneficiario_id")
+  bancoId           Int                      @map("banco_id")
+  estado            EstadoSolicitudAlimentos @default(PENDIENTE)
+  claveIdempotencia String?                  @unique @map("clave_idempotencia") @db.VarChar(100)
+  observaciones     String?                  @db.Text
+  motivoDecision    String?                  @map("motivo_decision") @db.Text
+  revisadaPorId     Int?                     @map("revisada_por_id")
+  creadaEn          DateTime                 @default(now()) @map("creada_en") @db.DateTime(3)
+  revisadaEn        DateTime?                @map("revisada_en") @db.DateTime(3)
+  beneficiario      Beneficiario             @relation(fields: [beneficiarioId], references: [id], onDelete: Restrict)
+  banco             BancoAlimentos           @relation(fields: [bancoId], references: [id], onDelete: Restrict)
+  revisadaPor       Usuario?                 @relation("SolicitudAlimentosRevisor", fields: [revisadaPorId], references: [id], onDelete: SetNull)
+  detalles          DetalleSolicitud[]
+  entregas          Entrega[]
 
+  @@index([bancoId, estado, creadaEn])
+  @@index([beneficiarioId, estado, creadaEn])
+  @@map("solicitudes_alimentos")
+}
+
+model DetalleSolicitud {
+  id                 Int                @id @default(autoincrement())
+  solicitudId        Int                @map("solicitud_id")
+  productoId         Int                @map("producto_id")
+  cantidadSolicitada Int                @map("cantidad_solicitada")
+  cantidadAprobada   Int                @default(0) @map("cantidad_aprobada")
+  solicitud          SolicitudAlimentos @relation(fields: [solicitudId], references: [id], onDelete: Restrict)
+  producto           Producto           @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  detallesEntrega    DetalleEntrega[]
+
+  @@unique([solicitudId, productoId])
+  @@index([productoId])
+  @@map("detalles_solicitud")
+}
+
+model Entrega {
+  id                      Int                 @id @default(autoincrement())
+  producto_id             Int?
+  cantidad                Int?
+  fecha                   DateTime            @default(now()) @db.DateTime(3)
+  beneficiario_referencia String              @db.VarChar(191)
+  bancoId                 Int?                @map("banco_id")
+  beneficiarioId          Int?                @map("beneficiario_id")
+  solicitudId             Int?                @map("solicitud_id")
+  estado                  EstadoEntrega       @default(REGISTRADA)
+  entregadaPor            String?             @map("entregada_por") @db.VarChar(191)
+  recibidaPor             String?             @map("recibida_por") @db.VarChar(191)
+  observaciones           String?             @db.Text
+  registradaPorId         Int?                @map("registrada_por_id")
+  confirmadaPorId         Int?                @map("confirmada_por_id")
+  confirmadaEn            DateTime?           @map("confirmada_en") @db.DateTime(3)
+  producto                Producto?           @relation(fields: [producto_id], references: [id], onDelete: Restrict)
+  banco                   BancoAlimentos?     @relation(fields: [bancoId], references: [id], onDelete: Restrict)
+  beneficiario            Beneficiario?       @relation(fields: [beneficiarioId], references: [id], onDelete: Restrict)
+  solicitud               SolicitudAlimentos? @relation(fields: [solicitudId], references: [id], onDelete: Restrict)
+  registradaPor           Usuario?            @relation("EntregaRegistrador", fields: [registradaPorId], references: [id], onDelete: SetNull)
+  confirmadaPor           Usuario?            @relation("EntregaConfirmador", fields: [confirmadaPorId], references: [id], onDelete: SetNull)
+  detalles                DetalleEntrega[]
+
+  @@index([bancoId, fecha])
+  @@index([beneficiarioId, fecha])
+  @@index([solicitudId])
   @@map("entregas")
+}
+
+model DetalleEntrega {
+  id                 Int                   @id @default(autoincrement())
+  entregaId          Int                   @map("entrega_id")
+  detalleSolicitudId Int                   @map("detalle_solicitud_id")
+  productoId         Int                   @map("producto_id")
+  cantidad           Int
+  entrega            Entrega               @relation(fields: [entregaId], references: [id], onDelete: Restrict)
+  detalleSolicitud   DetalleSolicitud      @relation(fields: [detalleSolicitudId], references: [id], onDelete: Restrict)
+  producto           Producto              @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  movimiento         MovimientoInventario?
+
+  @@unique([entregaId, detalleSolicitudId])
+  @@index([productoId])
+  @@map("detalles_entrega")
+}
+
+model MovimientoInventario {
+  id               Int                      @id @default(autoincrement())
+  bancoId          Int                      @map("banco_id")
+  inventarioId     Int                      @map("inventario_id")
+  productoId       Int                      @map("producto_id")
+  tipo             TipoMovimientoInventario
+  cantidad         Int
+  donacionId       Int?                     @map("donacion_id")
+  detalleEntregaId Int?                     @unique @map("detalle_entrega_id")
+  usuarioId        Int?                     @map("usuario_id")
+  creadoEn         DateTime                 @default(now()) @map("creado_en") @db.DateTime(3)
+  banco            BancoAlimentos           @relation(fields: [bancoId], references: [id], onDelete: Restrict)
+  inventario       Inventario               @relation(fields: [inventarioId], references: [id], onDelete: Restrict)
+  producto         Producto                 @relation(fields: [productoId], references: [id], onDelete: Restrict)
+  donacion         Donacion?                @relation(fields: [donacionId], references: [id], onDelete: Restrict)
+  detalleEntrega   DetalleEntrega?          @relation(fields: [detalleEntregaId], references: [id], onDelete: Restrict)
+  usuario          Usuario?                 @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@index([bancoId, creadoEn])
+  @@index([inventarioId, creadoEn])
+  @@map("movimientos_inventario")
+}
+
+model Auditoria {
+  id        Int             @id @default(autoincrement())
+  usuarioId Int?            @map("usuario_id")
+  bancoId   Int?            @map("banco_id")
+  accion    String          @db.VarChar(100)
+  entidad   String          @db.VarChar(100)
+  entidadId String?         @map("entidad_id") @db.VarChar(100)
+  detalles  Json?
+  creadoEn  DateTime        @default(now()) @map("creado_en") @db.DateTime(3)
+  usuario   Usuario?        @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  banco     BancoAlimentos? @relation(fields: [bancoId], references: [id], onDelete: SetNull)
+
+  @@index([usuarioId, creadoEn])
+  @@index([bancoId, creadoEn])
+  @@index([entidad, entidadId, creadoEn])
+  @@map("auditorias")
 }

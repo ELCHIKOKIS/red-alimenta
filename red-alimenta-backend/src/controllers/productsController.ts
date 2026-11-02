@@ -4,8 +4,8 @@ import prisma from '../lib/prisma';
 import { AppError, parseBooleanField } from '../lib/errors';
 
 function normalizeText(value: unknown, fieldName: string) {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new AppError(`${fieldName} is required`, 400);
+  if (typeof value !== 'string' || value.trim() === '' || value.trim().length > 191) {
+    throw new AppError(`${fieldName} is required and must be at most 191 characters`, 400);
   }
 
   return value.trim();
@@ -20,11 +20,8 @@ function normalizeProductPayload(payload: unknown) {
   const nombre = normalizeText(body.nombre, 'nombre');
   const categoria = normalizeText(body.categoria, 'categoria');
   const unidad = normalizeText(body.unidad, 'unidad');
-
-  let stockActual: number = Number(body.stock_actual ?? 0);
-
-  if (!Number.isInteger(stockActual) || stockActual < 0) {
-    throw new AppError('stock_actual must be a non-negative integer', 400);
+  if (body.stock_actual !== undefined && Number(body.stock_actual) !== 0) {
+    throw new AppError('Stock is managed per food bank; create the product with stock_actual set to 0', 400);
   }
 
   let activo = body.activo ?? true;
@@ -44,7 +41,6 @@ function normalizeProductPayload(payload: unknown) {
     nombre,
     categoria,
     unidad,
-    stock_actual: stockActual,
     activo,
   };
 }
@@ -69,6 +65,7 @@ export async function listProducts(req: Request, res: Response, next: NextFuncti
     const products = await prisma.producto.findMany({
       where,
       orderBy: { nombre: 'asc' },
+      select: { id: true, nombre: true, categoria: true, unidad: true, activo: true },
     });
 
     res.json(products);
@@ -86,7 +83,12 @@ export async function getProductById(req: Request, res: Response, next: NextFunc
 
     const product = await prisma.producto.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        nombre: true,
+        categoria: true,
+        unidad: true,
+        activo: true,
         _count: {
           select: { donaciones: true, entregas: true },
         },
@@ -115,7 +117,21 @@ export async function createProduct(req: Request, res: Response, next: NextFunct
       throw new AppError('A product with that name already exists', 409);
     }
 
-    const product = await prisma.producto.create({ data: payload });
+    const product = await prisma.$transaction(async (tx) => {
+      const created = await tx.producto.create({
+        data: payload,
+        select: { id: true, nombre: true, categoria: true, unidad: true, activo: true },
+      });
+      await tx.auditoria.create({
+        data: {
+          usuarioId: req.auth!.userId,
+          accion: 'PRODUCTO_CREADO',
+          entidad: 'Producto',
+          entidadId: String(created.id),
+        },
+      });
+      return created;
+    });
     res.status(201).json(product);
   } catch (error) {
     next(error);
@@ -134,9 +150,16 @@ export async function updateProduct(req: Request, res: Response, next: NextFunct
       throw new AppError('Product not found', 404);
     }
 
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+      throw new AppError('Product payload is required', 400);
+    }
+    const body = req.body as Record<string, unknown>;
     const payload = normalizeProductPayload({
-      ...product,
-      ...(req.body ?? {}),
+      nombre: body.nombre ?? product.nombre,
+      categoria: body.categoria ?? product.categoria,
+      unidad: body.unidad ?? product.unidad,
+      activo: body.activo ?? product.activo,
+      stock_actual: body.stock_actual,
     });
 
     if (payload.nombre !== product.nombre) {
@@ -146,9 +169,21 @@ export async function updateProduct(req: Request, res: Response, next: NextFunct
       }
     }
 
-    const updated = await prisma.producto.update({
-      where: { id: productId },
-      data: payload,
+    const updated = await prisma.$transaction(async (tx) => {
+      const item = await tx.producto.update({
+        where: { id: productId },
+        data: payload,
+        select: { id: true, nombre: true, categoria: true, unidad: true, activo: true },
+      });
+      await tx.auditoria.create({
+        data: {
+          usuarioId: req.auth!.userId,
+          accion: 'PRODUCTO_ACTUALIZADO',
+          entidad: 'Producto',
+          entidadId: String(item.id),
+        },
+      });
+      return item;
     });
 
     res.json(updated);
@@ -169,9 +204,19 @@ export async function deleteProduct(req: Request, res: Response, next: NextFunct
       throw new AppError('Product not found', 404);
     }
 
-    await prisma.producto.update({
-      where: { id: productId },
-      data: { activo: false },
+    await prisma.$transaction(async (tx) => {
+      await tx.producto.update({
+        where: { id: productId },
+        data: { activo: false },
+      });
+      await tx.auditoria.create({
+        data: {
+          usuarioId: req.auth!.userId,
+          accion: 'PRODUCTO_DESACTIVADO',
+          entidad: 'Producto',
+          entidadId: String(productId),
+        },
+      });
     });
 
     res.status(204).send();

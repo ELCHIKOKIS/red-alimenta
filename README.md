@@ -1,6 +1,6 @@
 # RED-ALIMENTA
 
-Proyecto compuesto por una aplicación Android nativa y un backend REST. La aplicación Android se comunica con el backend para consultar y actualizar la información de productos, donaciones y entregas.
+RED-ALIMENTA es una plataforma para una red de bancos de alimentos. Incluye una aplicación Android nativa y una API REST para administrar bancos e inventarios independientes, usuarios por rol, donaciones, solicitudes, entregas, verificación e informes.
 
 ## Estructura del proyecto
 
@@ -29,7 +29,7 @@ cd C:\Users\juanf\U\red-alimenta\red-alimenta-backend
 npm.cmd run dev
 ```
 
-La primera vez, prepara las dependencias, el archivo `.env` y Prisma siguiendo la [guía del backend](./red-alimenta-backend/README.md). El archivo `.env` contiene configuración local y no se debe subir al repositorio.
+La primera vez, prepara las dependencias, el archivo `.env`, el primer administrador y Prisma siguiendo la [guía del backend](./red-alimenta-backend/README.md). Antes de aplicar la migración de múltiples bancos, realiza una copia de seguridad de MySQL y revisa la sección de migración de esa guía. El archivo `.env` contiene configuración local y no se debe subir al repositorio.
 
 Puedes comprobar que la API responde en:
 
@@ -48,4 +48,3 @@ La URL predeterminada de desarrollo para el emulador es `http://10.0.2.2:4000/`;
 - No publiques archivos `.env`, contraseñas ni credenciales.
 - El backend debe tener su variable `DATABASE_URL` configurada localmente para conectarse a MySQL.
 - Para configurar otra URL de API en Android, consulta la guía de [`red-alimenta-android`](./red-alimenta-android/README.md).
-

@@ -2,10 +2,14 @@ package com.redalimenta.mobile.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -22,9 +26,250 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import com.redalimenta.mobile.data.AvailableProduct
+import com.redalimenta.mobile.data.AdminUser
+import com.redalimenta.mobile.data.BankUserPayload
+import com.redalimenta.mobile.data.ApprovedProduct
+import com.redalimenta.mobile.data.Bank
+import com.redalimenta.mobile.data.BankCoveragePayload
+import com.redalimenta.mobile.data.BankPayload
+import com.redalimenta.mobile.data.FoodRequest
 import com.redalimenta.mobile.data.Product
 import com.redalimenta.mobile.data.ProductPayload
+import com.redalimenta.mobile.data.ProfileUpdatePayload
+import com.redalimenta.mobile.data.RequestedProduct
+import com.redalimenta.mobile.data.User
+
+@Composable
+fun ProfileEditDialog(
+    user: User,
+    onDismiss: () -> Unit,
+    onSave: (ProfileUpdatePayload) -> Unit,
+) {
+    var name by remember(user.id) { mutableStateOf(user.nombre) }
+    var email by remember(user.id) { mutableStateOf(user.email) }
+    var phone by remember(user.id) {
+        mutableStateOf(user.telefono ?: user.beneficiario?.telefono.orEmpty())
+    }
+    var donorOrganization by remember(user.id) {
+        mutableStateOf(user.donante?.organizacion.orEmpty())
+    }
+    var donorAddress by remember(user.id) { mutableStateOf(user.donante?.direccion.orEmpty()) }
+    var organization by remember(user.id) {
+        mutableStateOf(user.beneficiario?.nombreOrganizacion.orEmpty())
+    }
+    var nit by remember(user.id) { mutableStateOf(user.beneficiario?.nit.orEmpty()) }
+    var organizationType by remember(user.id) {
+        mutableStateOf(user.beneficiario?.tipoOrganizacion.orEmpty())
+    }
+    var department by remember(user.id) { mutableStateOf(user.beneficiario?.departamento.orEmpty()) }
+    var municipality by remember(user.id) { mutableStateOf(user.beneficiario?.municipio.orEmpty()) }
+    var beneficiaryAddress by remember(user.id) { mutableStateOf(user.beneficiario?.direccion.orEmpty()) }
+    var validationError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Editar perfil") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(name, { name = it }, label = { Text("Nombre") }, singleLine = true)
+                OutlinedTextField(
+                    email,
+                    { email = it },
+                    label = { Text("Correo") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    phone,
+                    { phone = it },
+                    label = { Text("Teléfono") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true,
+                )
+                if (user.rol == "DONANTE") {
+                    OutlinedTextField(
+                        donorOrganization,
+                        { donorOrganization = it },
+                        label = { Text("Organización (opcional)") },
+                    )
+                    OutlinedTextField(
+                        donorAddress,
+                        { donorAddress = it },
+                        label = { Text("Dirección (opcional)") },
+                    )
+                }
+                if (user.rol == "BENEFICIARIO") {
+                    OutlinedTextField(
+                        organization,
+                        { organization = it },
+                        label = { Text("Nombre de la organización") },
+                    )
+                    OutlinedTextField(nit, { nit = it }, label = { Text("NIT (opcional)") })
+                    OutlinedTextField(
+                        organizationType,
+                        { organizationType = it },
+                        label = { Text("Tipo de organización") },
+                    )
+                    OutlinedTextField(department, { department = it }, label = { Text("Departamento") })
+                    OutlinedTextField(municipality, { municipality = it }, label = { Text("Municipio") })
+                    OutlinedTextField(
+                        beneficiaryAddress,
+                        { beneficiaryAddress = it },
+                        label = { Text("Dirección") },
+                    )
+                }
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                validationError = when {
+                    name.isBlank() -> "El nombre es obligatorio."
+                    !email.contains('@') -> "Escribe un correo válido."
+                    user.rol == "BENEFICIARIO" && listOf(
+                        organization,
+                        organizationType,
+                        department,
+                        municipality,
+                        beneficiaryAddress,
+                    ).any { it.isBlank() } -> "Completa los datos obligatorios de la organización."
+                    else -> null
+                }
+                if (validationError == null) {
+                    onSave(
+                        ProfileUpdatePayload(
+                            nombre = name.trim(),
+                            email = email.trim(),
+                            telefono = phone,
+                            organizacion = donorOrganization.takeIf { user.rol == "DONANTE" },
+                            direccion = when (user.rol) {
+                                "DONANTE" -> donorAddress
+                                "BENEFICIARIO" -> beneficiaryAddress
+                                else -> null
+                            },
+                            nombreOrganizacion = organization.takeIf { user.rol == "BENEFICIARIO" },
+                            nit = nit.takeIf { user.rol == "BENEFICIARIO" },
+                            tipoOrganizacion = organizationType.takeIf { user.rol == "BENEFICIARIO" },
+                            departamento = department.takeIf { user.rol == "BENEFICIARIO" },
+                            municipio = municipality.takeIf { user.rol == "BENEFICIARIO" },
+                        ),
+                    )
+                }
+            }) {
+                Text("Guardar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+fun BankUserFormDialog(onDismiss: () -> Unit, onSave: (BankUserPayload) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Crear usuario del banco") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Correo") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Contraseña (mínimo 12 caracteres)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                )
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                validationError = when {
+                    name.isBlank() || email.isBlank() -> "Completa el nombre y el correo."
+                    password.length < 12 -> "La contraseña debe tener al menos 12 caracteres."
+                    else -> null
+                }
+                if (validationError == null) {
+                    onSave(BankUserPayload(name.trim(), email.trim(), password))
+                }
+            }) {
+                Text("Crear usuario")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+fun AdminUserEditDialog(
+    user: AdminUser,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit,
+) {
+    var name by remember(user.id) { mutableStateOf(user.nombre) }
+    var email by remember(user.id) { mutableStateOf(user.email) }
+    var validationError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Editar usuario") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre") },
+                    singleLine = true,
+                )
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Correo") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    singleLine = true,
+                )
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                validationError = when {
+                    name.isBlank() -> "El nombre es obligatorio."
+                    !email.contains('@') -> "Escribe un correo válido."
+                    else -> null
+                }
+                if (validationError == null) onSave(name.trim(), email.trim())
+            }) {
+                Text("Guardar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
 
 @Composable
 fun ProductFormDialog(
@@ -35,7 +280,6 @@ fun ProductFormDialog(
     var name by remember(product) { mutableStateOf(product?.nombre.orEmpty()) }
     var category by remember(product) { mutableStateOf(product?.categoria.orEmpty()) }
     var unit by remember(product) { mutableStateOf(product?.unidad.orEmpty()) }
-    var stock by remember(product) { mutableStateOf(product?.stockActual?.toString() ?: "0") }
     var active by remember(product) { mutableStateOf(product?.activo ?: true) }
     var validationError by remember { mutableStateOf<String?>(null) }
 
@@ -65,171 +309,336 @@ fun ProductFormDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = stock,
-                    onValueChange = { stock = it },
-                    label = { Text("Stock actual") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 if (product != null) {
-                    androidx.compose.foundation.layout.Row(
+                    Row(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Activo")
+                        Text("Activo en el catálogo")
                         Switch(checked = active, onCheckedChange = { active = it })
                     }
                 }
-                validationError?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                }
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             Button(onClick = {
-                val parsedStock = stock.toIntOrNull()
                 validationError = when {
                     name.isBlank() || category.isBlank() || unit.isBlank() ->
                         "Completa todos los campos."
-                    parsedStock == null || parsedStock < 0 ->
-                        "El stock debe ser un entero igual o mayor que cero."
                     else -> null
                 }
                 if (validationError == null) {
-                    onSave(
-                        ProductPayload(
-                            nombre = name.trim(),
-                            categoria = category.trim(),
-                            unidad = unit.trim(),
-                            stockActual = parsedStock ?: 0,
-                            activo = active,
-                        ),
-                    )
+                    onSave(ProductPayload(name.trim(), category.trim(), unit.trim(), active))
                 }
             }) {
                 Text("Guardar")
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+fun BankFormDialog(onDismiss: () -> Unit, onSave: (BankPayload) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var department by remember { mutableStateOf("") }
+    var municipality by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Registrar banco de alimentos") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(name, { name = it }, label = { Text("Nombre") })
+                OutlinedTextField(department, { department = it }, label = { Text("Departamento") })
+                OutlinedTextField(municipality, { municipality = it }, label = { Text("Municipio") })
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
         },
+        confirmButton = {
+            Button(onClick = {
+                validationError = if (name.isBlank() || department.isBlank() || municipality.isBlank()) {
+                    "Completa todos los campos."
+                } else {
+                    null
+                }
+                if (validationError == null) {
+                    onSave(
+                        BankPayload(
+                            nombre = name.trim(),
+                            departamento = department.trim(),
+                            municipio = municipality.trim(),
+                            coberturas = listOf(
+                                BankCoveragePayload(department.trim(), municipality.trim()),
+                            ),
+                        ),
+                    )
+                }
+            }) {
+                Text("Crear banco")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MovementFormDialog(
-    title: String,
+fun DonationFormDialog(
     products: List<Product>,
-    isDonation: Boolean,
+    banks: List<Bank>,
+    selectedBankId: Int?,
     onDismiss: () -> Unit,
-    onSave: (productId: Int, quantity: Int, reference: String) -> Unit,
+    onSave: (productId: Int, bankId: Int, quantity: Int, expiry: String?) -> Unit,
 ) {
-    val availableProducts = remember(products, isDonation) {
-        products.filter { it.activo && (isDonation || it.stockActual > 0) }
+    val activeProducts = remember(products) { products.filter { it.activo } }
+    val activeBanks = remember(banks) { banks.filter { it.estado == "ACTIVO" } }
+    var product by remember(activeProducts) { mutableStateOf(activeProducts.firstOrNull()) }
+    var bank by remember(activeBanks, selectedBankId) {
+        mutableStateOf(activeBanks.firstOrNull { it.id == selectedBankId } ?: activeBanks.firstOrNull())
     }
-    var selectedProduct by remember(availableProducts) {
-        mutableStateOf(availableProducts.firstOrNull())
-    }
-    var expanded by remember { mutableStateOf(false) }
     var quantity by remember { mutableStateOf("") }
-    var reference by remember { mutableStateOf("") }
+    var expiry by remember { mutableStateOf("") }
+    var productMenu by remember { mutableStateOf(false) }
+    var bankMenu by remember { mutableStateOf(false) }
     var validationError by remember { mutableStateOf<String?>(null) }
-    val referenceLabel = if (isDonation) "Donante" else "Beneficiario"
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { Text("Registrar donación") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (availableProducts.isEmpty()) {
-                    Text(
-                        if (isDonation) "Primero registra un producto activo."
-                        else "No hay productos activos con stock disponible.",
-                    )
+                if (activeProducts.isEmpty() || activeBanks.isEmpty()) {
+                    Text("No hay bancos o productos activos para registrar la donación.")
                 } else {
-                    ExposedDropdownMenuBox(
-                        expanded = expanded,
-                        onExpandedChange = { expanded = it },
-                    ) {
+                    ExposedDropdownMenuBox(productMenu, { productMenu = it }) {
                         OutlinedTextField(
-                            value = selectedProduct?.nombre.orEmpty(),
+                            value = product?.nombre.orEmpty(),
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Producto") },
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(),
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(productMenu) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
                         )
-                        ExposedDropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false },
-                        ) {
-                            availableProducts.forEach { product ->
+                        ExposedDropdownMenu(productMenu, { productMenu = false }) {
+                            activeProducts.forEach { option ->
                                 DropdownMenuItem(
-                                    text = {
-                                        Text("${product.nombre} · stock ${product.stockActual}")
-                                    },
-                                    onClick = {
-                                        selectedProduct = product
-                                        expanded = false
-                                    },
+                                    text = { Text("${option.nombre} · ${option.unidad}") },
+                                    onClick = { product = option; productMenu = false },
+                                )
+                            }
+                        }
+                    }
+                    ExposedDropdownMenuBox(bankMenu, { bankMenu = it }) {
+                        OutlinedTextField(
+                            value = bank?.nombre.orEmpty(),
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Banco receptor") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(bankMenu) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                        )
+                        ExposedDropdownMenu(bankMenu, { bankMenu = false }) {
+                            activeBanks.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.nombre) },
+                                    onClick = { bank = option; bankMenu = false },
                                 )
                             }
                         }
                     }
                     OutlinedTextField(
-                        value = quantity,
-                        onValueChange = { quantity = it },
+                        quantity,
+                        { quantity = it },
                         label = { Text("Cantidad") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        expiry,
+                        { expiry = it },
+                        label = { Text("Vencimiento (YYYY-MM-DD, opcional)") },
+                        singleLine = true,
+                    )
+                }
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            Button(enabled = activeProducts.isNotEmpty() && activeBanks.isNotEmpty(), onClick = {
+                val parsedQuantity = quantity.toIntOrNull()
+                validationError = when {
+                    product == null || bank == null -> "Selecciona un producto y un banco."
+                    parsedQuantity == null || parsedQuantity <= 0 -> "La cantidad debe ser mayor que cero."
+                    else -> null
+                }
+                if (validationError == null) {
+                    onSave(product!!.id, bank!!.id, parsedQuantity!!, expiry.ifBlank { null })
+                }
+            }) { Text("Enviar donación") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+fun RequestFormDialog(
+    products: List<AvailableProduct>,
+    onDismiss: () -> Unit,
+    onSave: (List<RequestedProduct>) -> Unit,
+) {
+    var quantities by remember(products) { mutableStateOf(products.associate { it.id to "" }) }
+    var selectedIds by remember(products) { mutableStateOf(products.map { it.id }.toSet()) }
+    var validationError by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Solicitar alimentos") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (products.isEmpty()) {
+                    Text("No hay alimentos publicados con disponibilidad en este banco.")
+                } else {
+                    products.forEach { product ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = product.id in selectedIds,
+                                    onCheckedChange = { checked ->
+                                        selectedIds = if (checked) selectedIds + product.id
+                                        else selectedIds - product.id
+                                    },
+                                )
+                                Text(
+                                    "${product.nombre} · ${product.cantidadDisponible} ${product.unidad}",
+                                )
+                            }
+                            if (product.id in selectedIds) {
+                                OutlinedTextField(
+                                    value = quantities[product.id].orEmpty(),
+                                    onValueChange = {
+                                        quantities = quantities + (product.id to it)
+                                    },
+                                    label = { Text("Cantidad solicitada") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                }
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            Button(enabled = products.isNotEmpty(), onClick = {
+                val items = selectedIds.mapNotNull { id ->
+                    val product = products.firstOrNull { it.id == id } ?: return@mapNotNull null
+                    val quantity = quantities[id]?.toIntOrNull()
+                    if (quantity == null || quantity <= 0 || quantity > product.cantidadDisponible) {
+                        null
+                    } else {
+                        RequestedProduct(productoId = id, cantidad = quantity)
+                    }
+                }
+                validationError = when {
+                    selectedIds.isEmpty() -> "Selecciona al menos un producto."
+                    items.size != selectedIds.size ->
+                        "Cada cantidad debe ser positiva y no superar la disponibilidad."
+                    else -> null
+                }
+                if (validationError == null) onSave(items)
+            }) { Text("Enviar solicitud") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+fun RequestApprovalDialog(
+    request: FoodRequest,
+    onDismiss: () -> Unit,
+    onSave: (List<ApprovedProduct>) -> Unit,
+) {
+    var quantities by remember(request) {
+        mutableStateOf(request.detalles.associate { it.id to it.cantidadSolicitada.toString() })
+    }
+    var validationError by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Aprobar cantidades · solicitud #${request.id}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                request.detalles.forEach { detail ->
+                    OutlinedTextField(
+                        value = quantities[detail.id].orEmpty(),
+                        onValueChange = { quantities = quantities + (detail.id to it) },
+                        label = {
+                            Text("${detail.producto.nombre} (solicitado: ${detail.cantidadSolicitada})")
+                        },
+                        supportingText = { Text("Escribe 0 si no se aprueba.") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    OutlinedTextField(
-                        value = reference,
-                        onValueChange = { reference = it },
-                        label = { Text(referenceLabel) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    validationError?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error)
-                    }
                 }
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
-            Button(
-                enabled = availableProducts.isNotEmpty(),
-                onClick = {
-                    val parsedQuantity = quantity.toIntOrNull()
-                    validationError = when {
-                        selectedProduct == null -> "Selecciona un producto."
-                        parsedQuantity == null || parsedQuantity <= 0 ->
-                            "La cantidad debe ser un entero mayor que cero."
-                        !isDonation && parsedQuantity > (selectedProduct?.stockActual ?: 0) ->
-                            "La cantidad supera el stock disponible."
-                        reference.isBlank() -> "Indica el nombre del $referenceLabel."
-                        else -> null
+            Button(onClick = {
+                val approvals = request.detalles.mapNotNull { detail ->
+                    val quantity = quantities[detail.id]?.toIntOrNull()
+                    if (quantity == null || quantity < 0 || quantity > detail.cantidadSolicitada) {
+                        null
+                    } else {
+                        ApprovedProduct(detail.id, quantity)
                     }
-                    if (validationError == null) {
-                        selectedProduct?.let {
-                            onSave(it.id, parsedQuantity ?: 0, reference.trim())
-                        }
-                    }
-                },
-            ) {
-                Text("Registrar")
+                }
+                validationError = when {
+                    approvals.size != request.detalles.size ->
+                        "Las cantidades deben ser enteros entre 0 y lo solicitado."
+                    approvals.none { it.cantidadAprobada > 0 } ->
+                        "Aprueba al menos una cantidad o rechaza la solicitud."
+                    else -> null
+                }
+                if (validationError == null) onSave(approvals)
+            }) { Text("Guardar aprobación") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+@Composable
+fun DeliveryFormDialog(
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var deliveredBy by remember { mutableStateOf("") }
+    var validationError by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Registrar entrega") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    deliveredBy,
+                    { deliveredBy = it },
+                    label = { Text("Persona que entrega") },
+                    singleLine = true,
+                )
+                Text("Se entregarán las cantidades aprobadas. El beneficiario deberá confirmar la recepción.")
+                validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        confirmButton = {
+            Button(onClick = {
+                validationError = if (deliveredBy.isBlank()) "Indica quién realiza la entrega." else null
+                if (validationError == null) onSave(deliveredBy.trim())
+            }) { Text("Registrar") }
         },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
 }

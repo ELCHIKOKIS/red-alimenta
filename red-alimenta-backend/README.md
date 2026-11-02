@@ -1,103 +1,99 @@
 # RED-ALIMENTA Backend
 
-Guía para configurar y ejecutar el backend en Windows con la instalación local de MySQL utilizada durante el desarrollo.
+API REST de RED-ALIMENTA, construida con Node.js, TypeScript, Express, Prisma y MySQL. Administra usuarios, bancos, inventarios independientes, donaciones, solicitudes, entregas, verificación y auditoría.
 
 ## Requisitos
 
-- Node.js y npm disponibles en PowerShell.
-- Dependencias instaladas en `node_modules`.
-- MySQL 8 instalado en `C:\Users\juanf\tools\mysql`.
+- Node.js y npm.
+- MySQL 8.
+- PowerShell en Windows. Si `npm.ps1` está bloqueado, usa `npm.cmd`.
 
-Si PowerShell bloquea `npm.ps1`, usa `npm.cmd` en los comandos de npm.
+## Configuración
 
-## Configuración inicial
+Desde esta carpeta instala dependencias y crea tu archivo local `.env` a partir de `.env.example`. Configura una URL válida de MySQL en `DATABASE_URL` y un `JWT_SECRET` aleatorio de al menos 32 bytes. No publiques `.env` ni incluyas contraseñas en el repositorio.
 
-Abre PowerShell en esta carpeta:
+Genera un secreto local en PowerShell:
 
 ```powershell
-cd C:\Users\juanf\U\red-alimenta\red-alimenta-backend
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes = New-Object byte[] 32
+$rng.GetBytes($bytes)
+$rng.Dispose()
+[Convert]::ToBase64String($bytes)
 ```
 
-Si es la primera instalación, instala las dependencias:
+Configura MySQL, genera el cliente Prisma y compila:
 
 ```powershell
 npm.cmd install
-```
-
-Configura la conexión a MySQL en el archivo `.env`, en la raíz del backend:
-
-```dotenv
-DATABASE_URL="mysql://USUARIO:CONTRASENA@127.0.0.1:3306/red_alimenta"
-PORT=4000
-```
-
-Sustituye `USUARIO` y `CONTRASENA` por las credenciales de MySQL de tu equipo. No compartas ni subas `.env`: este archivo está excluido de Git. `.env.example` sirve como referencia para las variables necesarias.
-
-Para generar el cliente de Prisma y sincronizar el esquema con la base de datos:
-
-```powershell
 npx.cmd prisma generate
-npx.cmd prisma db push
-```
-
-## Iniciar MySQL
-
-Haz doble clic en `iniciar-base-datos.bat`, ubicado en la raíz de este proyecto. El archivo inicia únicamente el servidor MySQL; no inicia Prisma ni el backend. Deja abierta la ventana mientras utilices la aplicación. Para detener MySQL, presiona `Ctrl+C` en esa ventana.
-
-También puedes iniciar MySQL desde una terminal de PowerShell:
-
-```powershell
-.\iniciar-base-datos.bat
-```
-
-El archivo `.bat` utiliza esta instalación local:
-
-- Ejecutable: `C:\Users\juanf\tools\mysql\bin\mysqld.exe`
-- Configuración: `C:\Users\juanf\tools\mysql\my.ini`
-- Puerto local: `3306`
-
-## Iniciar el backend
-
-Con MySQL iniciado, abre una segunda terminal. Ejecuta los comandos desde la carpeta del backend:
-
-```powershell
-cd C:\Users\juanf\U\red-alimenta\red-alimenta-backend
-npm.cmd run dev
-```
-
-Mantén la terminal abierta mientras uses el backend. Para detenerlo, presiona `Ctrl+C` en esa terminal.
-
-Comprueba que está activo visitando:
-
-```text
-http://localhost:4000/health
-```
-
-Al probar la aplicación en el emulador Android, el emulador accede al backend del equipo mediante `http://10.0.2.2:4000/`.
-
-## Otros comandos
-
-Compilar TypeScript:
-
-```powershell
-npm.cmd run build
-```
-
-Iniciar la versión compilada:
-
-```powershell
-npm.cmd start
-```
-
-El comando de prueba configurado en el proyecto compila el backend:
-
-```powershell
 npm.cmd test
 ```
 
-## Archivos de configuración importantes
+## Migración de la base de datos
 
-- `prisma/schema.prisma`: definición del esquema de base de datos.
-- `.env.example`: referencia de las variables de entorno requeridas.
-- `.env`: configuración local de conexión; no se debe compartir ni subir al repositorio.
-- `iniciar-base-datos.bat`: acceso directo para iniciar MySQL en este equipo.
+La migración `20261015180000_multibank_foundation` agrega soporte para los nuevos roles, sesiones, bancos, membresías, coberturas, perfiles de beneficiarios, documentos de verificación, inventario por banco, movimientos, solicitudes con varios productos, entregas y auditoría.
+
+Para conservar los datos existentes:
+
+- No elimina tablas ni registros existentes.
+- Crea un banco inicial llamado `Banco RED-ALIMENTA inicial`.
+- Asocia las donaciones y entregas históricas a ese banco.
+- Marca las donaciones antiguas como aceptadas para que no vuelvan a sumar existencias.
+- Copia las existencias actuales de cada producto al inventario privado del banco inicial (`publicado = false`).
+- Conserva `productos.stock_actual` como dato legado; las nuevas operaciones usan `inventarios`.
+
+Antes de aplicarla, realiza y verifica una copia de seguridad de MySQL. Después de revisar esa copia y confirmar que `DATABASE_URL` apunta a la base correcta, ejecuta:
+
+```powershell
+npm.cmd run prisma:migrate
+```
+
+Este comando aplica migraciones pendientes y no debe sustituirse por `prisma db push`. La migración no se ejecuta automáticamente al iniciar la API.
+
+## Crear el primer administrador
+
+El registro público solo permite solicitar cuentas de donante o beneficiario. El primer administrador se crea manualmente y el script se detiene si ya existe uno. Configura localmente `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` en `.env`; usa una contraseña propia de al menos 12 caracteres. Luego ejecuta:
+
+```powershell
+npm.cmd run admin:create
+```
+
+No se crea una cuenta ni una contraseña predeterminada.
+
+## Ejecutar
+
+Con MySQL disponible y la migración aplicada:
+
+```powershell
+npm.cmd run dev
+```
+
+La API escucha en el puerto definido por `PORT` (4000 por defecto). Comprueba el estado en `http://localhost:4000/health`. Para compilar y ejecutar la versión generada:
+
+```powershell
+npm.cmd run build
+npm.cmd start
+```
+
+## Funcionalidades y permisos
+
+- `ADMIN_GENERAL`: administra bancos, usuarios y verificaciones; supervisa operaciones, informes y auditoría.
+- `BANCO`: opera solamente sobre bancos donde tiene membresía; gestiona inventario, donaciones y solicitudes, registra entregas y consulta su historial.
+- `DONANTE`: registra donaciones y consulta su estado e historial.
+- `BENEFICIARIO`: completa su verificación, consulta disponibilidad publicada en su cobertura, solicita productos y confirma entregas.
+
+Una donación solo modifica el inventario después de ser aceptada por el banco receptor. Las aprobaciones parciales reservan cantidades, y las entregas actualizan el inventario mediante movimientos auditables. La autorización se valida en el backend; ocultar funciones en Android no sustituye estos controles.
+
+Los usuarios autenticados pueden actualizar su perfil en `PATCH /api/auth/me`. Si un beneficiario modifica los datos de identificación o cobertura de su organización, su cuenta vuelve a estado pendiente y debe ser verificada nuevamente.
+
+Los documentos de verificación aceptan PDF, JPEG o PNG hasta 5 MB y se almacenan localmente en `storage/documents` por defecto. `DOCUMENTS_DIR` permite configurar otra ubicación; no se debe exponer esa carpeta públicamente.
+
+## Pruebas y dependencias
+
+```powershell
+npm.cmd test
+npm.cmd audit
+```
+
+Las pruebas unitarias actuales cubren hash de contraseñas y tokens. Las pruebas que requieren MySQL deben ejecutarse con una base de datos de desarrollo independiente.

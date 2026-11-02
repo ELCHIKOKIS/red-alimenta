@@ -1,43 +1,42 @@
-# Red Alimenta para Android
+# RED-ALIMENTA para Android
 
-Aplicación Android nativa en Kotlin y Jetpack Compose para consultar productos, registrar donaciones y registrar entregas mediante la API REST del backend `red-alimenta-backend`.
+Aplicación única en Kotlin y Jetpack Compose, conectada al backend de RED-ALIMENTA. La navegación y las operaciones disponibles dependen del rol validado por el backend.
 
-## Requisitos para compilar
+## Requisitos
 
-- Android Studio con JDK 17 o superior.
-- Android SDK 35.
-- Gradle 8.9, compatible con Android Gradle Plugin 8.7.3.
+- Android Studio y Android SDK 35.
+- JDK 17 o superior.
+- MySQL y el backend configurados; consulta el [README del backend](../red-alimenta-backend/README.md).
 
 ## Configurar la API
 
-El valor de desarrollo predeterminado es `http://10.0.2.2:4000/`, dirección con la que el emulador Android accede al backend ejecutado en el equipo anfitrión.
+Para el emulador Android, la URL de desarrollo predeterminada es `http://10.0.2.2:4000/`. El emulador usa `10.0.2.2` para conectarse al backend que se ejecuta en el equipo anfitrión.
 
-Para compilar contra una API accesible en la nube, define su URL base:
+Para usar otra URL, compila con una URL base que termine en `/`:
 
 ```powershell
-gradle assembleDebug -PapiBaseUrl=https://tu-api-desplegada.example/
+.\gradlew.bat :app:assembleDebug -PapiBaseUrl=https://tu-api.example/
 ```
 
-También puedes abrir esta carpeta en Android Studio y configurar `-PapiBaseUrl=https://tu-api-desplegada.example/` en los argumentos de Gradle. No incluyas credenciales en los argumentos ni en el repositorio. La variante `release` bloquea tráfico HTTP sin cifrar; publica el APK únicamente después de configurar una URL HTTPS real.
+La variante `release` bloquea HTTP sin cifrar. Usa HTTPS en una API desplegada y no incluyas contraseñas ni tokens en la configuración de Gradle o en el repositorio.
 
-## Compilar e instalar
+## Compilar y ejecutar
 
-Desde Android Studio, abre la carpeta `red-alimenta-android`, espera la sincronización de Gradle y ejecuta la variante `app`.
-
-Para generar un APK de depuración desde una terminal con Gradle instalado:
+Abre esta carpeta en Android Studio, sincroniza Gradle, selecciona un emulador y ejecuta la configuración `app`. También puedes generar el APK de depuración desde PowerShell:
 
 ```powershell
-gradle assembleDebug
+.\gradlew.bat :app:assembleDebug
 ```
 
 El APK se genera en `app/build/outputs/apk/debug/app-debug.apk`.
 
-## Funcionalidades implementadas
+## Flujos disponibles
 
-- Listado, creación, edición y desactivación lógica de productos.
-- Listado y registro de donaciones.
-- Listado y registro de entregas, con validación previa de stock.
-- Actualización manual y al completar operaciones.
-- Mensajes visibles para errores de conexión y errores enviados por la API.
+- Inicio de sesión, registro público de donantes y organizaciones beneficiarias, recuperación de sesión y cierre de sesión.
+- Edición del perfil de usuario; los cambios a los datos de identificación de una organización beneficiaria requieren nueva verificación administrativa.
+- Beneficiarios: consulta de disponibilidad publicada, envío de solicitudes, estado e historial de entregas y carga de documentos PDF/JPEG/PNG (máximo 5 MB).
+- Donantes: registro de donaciones y consulta de sus estados.
+- Bancos: inventario privado, publicación de disponibilidad, revisión de donaciones, aprobación total o parcial de solicitudes, registro de entregas, consulta de donantes, beneficiarios e historial.
+- Administradores: gestión de bancos y usuarios de banco, revisión de registros de beneficiarios, administración de usuarios, operaciones e informes.
 
-El backend es quien valida de forma definitiva el stock y procesa las transacciones. La validación en la app solo mejora la experiencia de captura.
+Los tokens de sesión se protegen con Android Keystore y almacenamiento cifrado local. El APK desactiva las copias de seguridad para evitar restaurar datos cifrados sin la clave correspondiente. El backend sigue siendo responsable de autorizar cada operación y validar existencias.

@@ -251,6 +251,7 @@ data class RequestSummary(
 
 data class DeliveryDetail(
     val id: Int,
+    val detalleSolicitudId: Int,
     val productoId: Int,
     val cantidad: Int,
     val producto: Product,

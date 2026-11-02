@@ -313,11 +313,8 @@ class RedAlimentaViewModel(
         }
     }
 
-    fun registerDelivery(request: FoodRequest, deliveredBy: String) {
+    fun registerDelivery(request: FoodRequest, deliveredBy: String, items: List<DeliveredProduct>) {
         launchRequest("Entrega registrada; queda pendiente la confirmación del beneficiario.") {
-            val items = request.detalles
-                .filter { it.cantidadAprobada > 0 }
-                .map { DeliveredProduct(it.id, it.cantidadAprobada) }
             api.createDelivery(
                 DeliveryPayload(
                     solicitudId = request.id,

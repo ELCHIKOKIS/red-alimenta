@@ -37,6 +37,8 @@ import com.redalimenta.mobile.data.Bank
 import com.redalimenta.mobile.data.BankCoveragePayload
 import com.redalimenta.mobile.data.BankPayload
 import com.redalimenta.mobile.data.FoodRequest
+import com.redalimenta.mobile.data.Delivery
+import com.redalimenta.mobile.data.DeliveredProduct
 import com.redalimenta.mobile.data.Product
 import com.redalimenta.mobile.data.ProductPayload
 import com.redalimenta.mobile.data.ProfileUpdatePayload
@@ -613,30 +615,70 @@ fun RequestApprovalDialog(
 
 @Composable
 fun DeliveryFormDialog(
+    request: FoodRequest,
+    deliveries: List<Delivery>,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit,
+    onSave: (String, List<DeliveredProduct>) -> Unit,
 ) {
     var deliveredBy by remember { mutableStateOf("") }
     var validationError by remember { mutableStateOf<String?>(null) }
+    val remainingByDetail = remember(request, deliveries) {
+        request.detalles.associate { detail ->
+            val alreadyDelivered = deliveries
+                .filter { it.solicitud?.id == request.id }
+                .flatMap { it.detalles }
+                .filter { it.detalleSolicitudId == detail.id }
+                .sumOf { it.cantidad }
+            detail.id to (detail.cantidadAprobada - alreadyDelivered).coerceAtLeast(0)
+        }
+    }
+    var quantities by remember(remainingByDetail) {
+        mutableStateOf(remainingByDetail.filterValues { it > 0 }.mapValues { it.value.toString() })
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Registrar entrega") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 OutlinedTextField(
                     deliveredBy,
                     { deliveredBy = it },
                     label = { Text("Persona que entrega") },
                     singleLine = true,
                 )
-                Text("Se entregarán las cantidades aprobadas. El beneficiario deberá confirmar la recepción.")
+                request.detalles.filter { (remainingByDetail[it.id] ?: 0) > 0 }.forEach { detail ->
+                    OutlinedTextField(
+                        value = quantities[detail.id].orEmpty(),
+                        onValueChange = { quantities = quantities + (detail.id to it) },
+                        label = { Text("${detail.producto.nombre} · pendiente: ${remainingByDetail[detail.id]} ${detail.producto.unidad}") },
+                        supportingText = { Text("Ingresa 0 si no se entrega este producto.") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Text("El beneficiario deberá confirmar la recepción.")
                 validationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             Button(onClick = {
-                validationError = if (deliveredBy.isBlank()) "Indica quién realiza la entrega." else null
-                if (validationError == null) onSave(deliveredBy.trim())
+                val items = quantities.mapNotNull { (detailId, value) ->
+                    val quantity = value.toIntOrNull() ?: return@mapNotNull null
+                    if (quantity == 0) null else DeliveredProduct(detailId, quantity)
+                }
+                validationError = when {
+                    deliveredBy.isBlank() -> "Indica quién realiza la entrega."
+                    quantities.any { (detailId, value) ->
+                        value.toIntOrNull()?.let { it < 0 || it > (remainingByDetail[detailId] ?: 0) } != false
+                    } -> "Las cantidades deben ser enteros entre 0 y lo pendiente."
+                    items.isEmpty() -> "Indica al menos una cantidad para entregar."
+                    else -> null
+                }
+                if (validationError == null) onSave(deliveredBy.trim(), items)
             }) { Text("Registrar") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },

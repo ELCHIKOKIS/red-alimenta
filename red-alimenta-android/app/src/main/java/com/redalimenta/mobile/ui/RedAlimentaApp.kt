@@ -57,6 +57,7 @@ import com.redalimenta.mobile.data.BankBeneficiary
 import com.redalimenta.mobile.data.BankDonor
 import com.redalimenta.mobile.data.BankHistoryItem
 import com.redalimenta.mobile.data.Delivery
+import com.redalimenta.mobile.data.DeliveredProduct
 import com.redalimenta.mobile.data.FoodRequest
 import com.redalimenta.mobile.data.InventoryItem
 import com.redalimenta.mobile.data.Product
@@ -247,6 +248,7 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                 )
                 AppTab.REQUESTS -> RequestList(
                     requests = state.requests,
+                    deliveries = state.deliveries,
                     canCreate = user.rol == "BENEFICIARIO",
                     canReview = user.rol == "BANCO" || user.rol == "ADMIN_GENERAL",
                     canDeliver = user.rol == "BANCO" || user.rol == "ADMIN_GENERAL",
@@ -364,9 +366,11 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
     }
     deliveryRequest?.let { request ->
         DeliveryFormDialog(
+            request = request,
+            deliveries = state.deliveries,
             onDismiss = { deliveryRequest = null },
-            onSave = {
-                viewModel.registerDelivery(request, it)
+            onSave = { deliveredBy, items ->
+                viewModel.registerDelivery(request, deliveredBy, items)
                 deliveryRequest = null
             },
         )
@@ -818,6 +822,7 @@ private fun DonationList(
 @Composable
 private fun RequestList(
     requests: List<FoodRequest>,
+    deliveries: List<Delivery>,
     canCreate: Boolean,
     canReview: Boolean,
     canDeliver: Boolean,
@@ -859,6 +864,14 @@ private fun RequestList(
                         if (
                             canDeliver
                             && request.estado in setOf("APROBADA", "APROBADA_PARCIALMENTE")
+                            && request.detalles.any { detail ->
+                                val alreadyDelivered = deliveries
+                                    .filter { it.solicitud?.id == request.id }
+                                    .flatMap { it.detalles }
+                                    .filter { it.detalleSolicitudId == detail.id }
+                                    .sumOf { it.cantidad }
+                                detail.cantidadAprobada > alreadyDelivered
+                            }
                         ) {
                             TextButton(onClick = { onDeliver(request) }) { Text("Registrar entrega aprobada") }
                         }
@@ -899,6 +912,7 @@ private fun DeliveryList(
                     Text("Entrega #${delivery.id} · ${delivery.estado}", fontWeight = FontWeight.SemiBold)
                     Text("Organización: ${delivery.beneficiarioReferencia}")
                     Text("Banco: ${delivery.banco?.nombre ?: "Banco histórico"}")
+                    Text("Fecha: ${delivery.fecha.take(10)}")
                     Text("Entrega: ${delivery.entregadaPor ?: "No indicado"}")
                     Text("Recibe: ${delivery.recibidaPor ?: "Pendiente"}")
                     delivery.detalles.forEach { detail ->

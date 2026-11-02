@@ -1,0 +1,196 @@
+{
+  "info": {
+    "name": "RED-ALIMENTA API",
+    "description": "Colección de pruebas para la API REST de RED-ALIMENTA.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List products",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products"]
+            }
+          }
+        },
+        {
+          "name": "Search products by name",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/products?search=arroz",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products"],
+              "query": [
+                { "key": "search", "value": "arroz" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create product",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Arroz\",\n  \"categoria\": \"Cereal\",\n  \"unidad\": \"kg\",\n  \"stock_actual\": 10,\n  \"activo\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products"]
+            }
+          }
+        },
+        {
+          "name": "Get product by id",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "1"]
+            }
+          }
+        },
+        {
+          "name": "Update product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Arroz Premium\",\n  \"categoria\": \"Cereal\",\n  \"unidad\": \"kg\",\n  \"stock_actual\": 10,\n  \"activo\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "1"]
+            }
+          }
+        },
+        {
+          "name": "Delete product",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "1"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Donations",
+      "item": [
+        {
+          "name": "List donations",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/donations?productId=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "donations"],
+              "query": [
+                { "key": "productId", "value": "1" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create donation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producto_id\": 1,\n  \"cantidad\": 5,\n  \"donante_referencia\": \"Banco de alimentos\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/donations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "donations"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Deliveries",
+      "item": [
+        {
+          "name": "List deliveries",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/deliveries?productId=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "deliveries"],
+              "query": [
+                { "key": "productId", "value": "1" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create valid delivery",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producto_id\": 1,\n  \"cantidad\": 3,\n  \"beneficiario_referencia\": \"Casa comunitaria\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/deliveries",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "deliveries"]
+            }
+          }
+        },
+        {
+          "name": "Try invalid delivery above stock",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"producto_id\": 1,\n  \"cantidad\": 999,\n  \"beneficiario_referencia\": \"Intento invalido\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/deliveries",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "deliveries"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

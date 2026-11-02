@@ -1,0 +1,76 @@
+@baseUrl = http://localhost:4000
+
+### Health
+GET {{baseUrl}}/health
+
+### List products
+GET {{baseUrl}}/api/products
+
+### Search products by name
+GET {{baseUrl}}/api/products?search=arroz
+
+### Create product
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{
+  "nombre": "Arroz",
+  "categoria": "Cereal",
+  "unidad": "kg",
+  "stock_actual": 10,
+  "activo": true
+}
+
+### Get product by id
+GET {{baseUrl}}/api/products/1
+
+### Update product
+PUT {{baseUrl}}/api/products/1
+Content-Type: application/json
+
+{
+  "nombre": "Arroz Premium",
+  "categoria": "Cereal",
+  "unidad": "kg",
+  "stock_actual": 10,
+  "activo": true
+}
+
+### Delete product
+DELETE {{baseUrl}}/api/products/1
+
+### List donations
+GET {{baseUrl}}/api/donations?productId=1
+
+### Create donation
+POST {{baseUrl}}/api/donations
+Content-Type: application/json
+
+{
+  "producto_id": 1,
+  "cantidad": 5,
+  "donante_referencia": "Banco de alimentos"
+}
+
+### List deliveries
+GET {{baseUrl}}/api/deliveries?productId=1
+
+### Create valid delivery
+POST {{baseUrl}}/api/deliveries
+Content-Type: application/json
+
+{
+  "producto_id": 1,
+  "cantidad": 3,
+  "beneficiario_referencia": "Casa comunitaria"
+}
+
+### Invalid delivery above stock
+POST {{baseUrl}}/api/deliveries
+Content-Type: application/json
+
+{
+  "producto_id": 1,
+  "cantidad": 999,
+  "beneficiario_referencia": "Intento invalido"
+}

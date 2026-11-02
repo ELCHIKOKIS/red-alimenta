@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Producto {
+  id            Int       @id @default(autoincrement())
+  nombre        String    @db.VarChar(191)
+  categoria     String    @db.VarChar(191)
+  unidad        String    @db.VarChar(191)
+  stock_actual  Int       @default(0)
+  activo        Boolean   @default(true)
+  donaciones    Donacion[]
+  entregas      Entrega[]
+
+  @@unique([nombre], map: "productos_nombre_key")
+  @@map("productos")
+}
+
+model Donacion {
+  id                    Int       @id @default(autoincrement())
+  producto_id           Int
+  cantidad              Int
+  fecha                 DateTime  @default(now())
+  donante_referencia    String    @db.VarChar(191)
+  producto              Producto  @relation(fields: [producto_id], references: [id])
+
+  @@map("donaciones")
+}
+
+model Entrega {
+  id                     Int       @id @default(autoincrement())
+  producto_id            Int
+  cantidad               Int
+  fecha                  DateTime  @default(now())
+  beneficiario_referencia String    @db.VarChar(191)
+  producto               Producto  @relation(fields: [producto_id], references: [id])
+
+  @@map("entregas")
+}

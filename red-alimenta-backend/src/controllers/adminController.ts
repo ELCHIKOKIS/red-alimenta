@@ -14,7 +14,7 @@ import {
 import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
 import { getDocumentsDirectory } from './registrationDocumentsController';
-import { ADMIN_ROLES } from '../lib/roles';
+import { ADMIN_ROLES, isSuperAdmin } from '../lib/roles';
 
 function requiredText(value: unknown, field: string, maxLength: number): string {
   if (typeof value !== 'string' || value.trim() === '' || value.trim().length > maxLength) {
@@ -134,7 +134,7 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
       if (userId === req.auth?.userId && data.estado === EstadoCuenta.SUSPENDIDA) {
         throw new AppError('You cannot suspend your own account', 409);
       }
-      if (current.rol === RolUsuario.SUPER_ADMIN && req.auth?.role !== RolUsuario.SUPER_ADMIN) {
+      if (isSuperAdmin(current.rol) && !isSuperAdmin(req.auth!.role)) {
         throw new AppError('Only a super administrator can modify a super administrator', 403);
       }
       if (
@@ -187,7 +187,7 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
 
 export async function deleteUser(req: Request, res: Response, next: NextFunction) {
   try {
-    if (!req.auth || req.auth.role !== RolUsuario.SUPER_ADMIN) {
+    if (!req.auth || !isSuperAdmin(req.auth.role)) {
       throw new AppError('Only a super administrator can permanently delete users', 403);
     }
     const userId = parsePositiveInteger(req.params.id, 'user id');

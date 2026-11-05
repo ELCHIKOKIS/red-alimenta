@@ -4,6 +4,7 @@ import { EstadoCuenta, EstadoVerificacion, Prisma, RolUsuario } from '@prisma/cl
 import prisma from '../lib/prisma';
 import { AppError } from '../lib/errors';
 import { createAccessToken, getAccessTokenLifetimeSeconds, hashPassword, verifyPassword } from '../lib/auth';
+import { serializePublicUser } from '../lib/publicUser';
 
 const DUMMY_PASSWORD_HASH = `scrypt$${'0'.repeat(32)}$${'0'.repeat(128)}`;
 
@@ -50,22 +51,6 @@ function validatePassword(value: unknown): string {
     throw new AppError('password must contain between 12 and 128 characters', 400);
   }
   return value;
-}
-
-function publicUser(user: {
-  id: number;
-  nombre: string;
-  email: string;
-  rol: RolUsuario;
-  estado: EstadoCuenta;
-}) {
-  return {
-    id: user.id,
-    nombre: user.nombre,
-    email: user.email,
-    rol: user.rol,
-    estado: user.estado,
-  };
 }
 
 function getTokenExpiration(): Date {
@@ -134,7 +119,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     });
 
     res.status(201).json({
-      user: publicUser(user),
+      user: serializePublicUser(user),
       message: accountType === 'BENEFICIARIO'
         ? 'Registration submitted and awaiting administrator review'
         : 'Registration completed',
@@ -185,7 +170,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
       accessToken,
       tokenType: 'Bearer',
       expiresAt: expiresAt.toISOString(),
-      user: publicUser(user),
+      user: serializePublicUser(user),
     });
   } catch (error) {
     return next(error);

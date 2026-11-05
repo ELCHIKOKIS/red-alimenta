@@ -3,6 +3,7 @@ import { RolUsuario } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { AppError } from '../lib/errors';
 import { verifyAccessToken } from '../lib/auth';
+import { hasAllowedRole } from '../lib/roles';
 
 export interface AuthContext {
   userId: number;
@@ -77,7 +78,7 @@ export function authorize(...allowedRoles: RolUsuario[]) {
     if (req.auth.accountStatus !== 'ACTIVA') {
       return next(new AppError('This account is awaiting administrator approval', 403));
     }
-    if (!allowedRoles.includes(req.auth.role)) {
+    if (!hasAllowedRole(req.auth.role, allowedRoles)) {
       return next(new AppError('You are not authorized to perform this action', 403));
     }
     return next();

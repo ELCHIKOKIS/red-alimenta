@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { RolUsuario } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/authMiddleware';
+import { ADMIN_ROLES } from '../lib/roles';
 import {
   createProduct,
   deleteProduct,
@@ -12,11 +13,11 @@ import {
 const router = Router();
 
 router.use(authenticate);
-router.get('/', authorize(RolUsuario.ADMIN_GENERAL, RolUsuario.BANCO, RolUsuario.DONANTE), listProducts);
-router.get('/:id', authorize(RolUsuario.ADMIN_GENERAL, RolUsuario.BANCO, RolUsuario.DONANTE), getProductById);
-router.post('/', authorize(RolUsuario.ADMIN_GENERAL), createProduct);
-router.patch('/:id', authorize(RolUsuario.ADMIN_GENERAL), updateProduct);
-router.put('/:id', authorize(RolUsuario.ADMIN_GENERAL), updateProduct);
-router.delete('/:id', authorize(RolUsuario.ADMIN_GENERAL), deleteProduct);
+router.get('/', authorize(...ADMIN_ROLES, RolUsuario.BANCO, RolUsuario.DONANTE), listProducts);
+router.get('/:id', authorize(...ADMIN_ROLES, RolUsuario.BANCO, RolUsuario.DONANTE), getProductById);
+router.post('/', authorize(...ADMIN_ROLES), createProduct);
+router.patch('/:id', authorize(...ADMIN_ROLES), updateProduct);
+router.put('/:id', authorize(...ADMIN_ROLES), updateProduct);
+router.delete('/:id', authorize(...ADMIN_ROLES), deleteProduct);
 
 export default router;

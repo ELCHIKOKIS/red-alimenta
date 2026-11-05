@@ -109,6 +109,13 @@ data class AdminUserUpdatePayload(
     val estado: String? = null,
 )
 
+data class AdminUserDeleteResponse(
+    val deleted: Boolean,
+    val documentCleanupWarnings: Int,
+)
+
+fun isAdminRole(role: String): Boolean = role == "ADMIN_GENERAL" || role == "SUPER_ADMIN"
+
 data class BankDonor(
     val id: Int,
     val organizacion: String?,

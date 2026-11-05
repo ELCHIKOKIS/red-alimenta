@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
+import { isAdminRole } from '../lib/roles';
 
 interface DeliveryItem {
   detalleSolicitudId: number;
@@ -93,7 +94,7 @@ export async function listDeliveries(req: Request, res: Response, next: NextFunc
 
 export async function createDelivery(req: Request, res: Response, next: NextFunction) {
   try {
-    if (!req.auth || req.auth.role !== RolUsuario.BANCO && req.auth.role !== RolUsuario.ADMIN_GENERAL) {
+    if (!req.auth || req.auth.role !== RolUsuario.BANCO && !isAdminRole(req.auth.role)) {
       throw new AppError('Only a food bank can register deliveries', 403);
     }
     const body = asObject(req.body);

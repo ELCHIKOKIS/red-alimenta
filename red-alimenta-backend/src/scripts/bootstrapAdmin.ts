@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { EstadoCuenta, RolUsuario } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { hashPassword } from '../lib/auth';
+import { ADMIN_ROLES } from '../lib/roles';
 
 async function main() {
   const nombre = process.env.BOOTSTRAP_ADMIN_NAME?.trim();
@@ -20,7 +21,7 @@ async function main() {
     throw new Error('BOOTSTRAP_ADMIN_EMAIL must be a valid email address');
   }
 
-  const admins = await prisma.usuario.count({ where: { rol: RolUsuario.ADMIN_GENERAL } });
+  const admins = await prisma.usuario.count({ where: { rol: { in: ADMIN_ROLES } } });
   if (admins > 0) {
     throw new Error('An administrator already exists; bootstrap is only available before the first administrator');
   }

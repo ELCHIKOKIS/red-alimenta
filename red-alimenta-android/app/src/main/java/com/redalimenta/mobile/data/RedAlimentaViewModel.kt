@@ -256,6 +256,22 @@ class RedAlimentaViewModel(
         }
     }
 
+    fun deleteAdminUser(userId: Int) {
+        launchRequest(null) {
+            val result = api.deleteUser(userId)
+            loadData()
+            mutableState.update {
+                it.copy(
+                    notice = if (result.documentCleanupWarnings == 0) {
+                        "Usuario eliminado permanentemente."
+                    } else {
+                        "Usuario eliminado, pero ${result.documentCleanupWarnings} documento(s) requieren limpieza."
+                    },
+                )
+            }
+        }
+    }
+
     fun uploadVerificationDocument(fileName: String, mimeType: String, content: ByteArray) {
         launchRequest("Documento adjuntado a tu solicitud de verificación.") {
             val body = content.toRequestBody(mimeType.toMediaTypeOrNull())
@@ -386,7 +402,7 @@ class RedAlimentaViewModel(
         mutableState.update { it.copy(banks = banks, selectedBankId = selectedBankId) }
 
         when (user.rol) {
-            "ADMIN_GENERAL" -> {
+            "ADMIN_GENERAL", "SUPER_ADMIN" -> {
                 val products = api.getProducts()
                 val donations = api.getDonations()
                 val requests = api.getRequests()
@@ -569,7 +585,7 @@ class RedAlimentaViewModel(
 }
 
 fun tabsFor(role: String): List<AppTab> = when (role) {
-    "ADMIN_GENERAL" -> listOf(
+    "ADMIN_GENERAL", "SUPER_ADMIN" -> listOf(
         AppTab.PRODUCTS,
         AppTab.BANKS,
         AppTab.DONATIONS,

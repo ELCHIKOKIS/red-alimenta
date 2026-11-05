@@ -10,6 +10,7 @@ import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
 import { assertBankAccess, getBankId } from '../lib/bankAccess';
 import { hashPassword } from '../lib/auth';
+import { isAdminRole } from '../lib/roles';
 
 function asObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -47,7 +48,7 @@ export async function listBanks(req: Request, res: Response, next: NextFunction)
 
     if (req.auth.role === RolUsuario.BANCO) {
       where.id = { in: req.auth.bankIds };
-    } else if (req.auth.role !== RolUsuario.ADMIN_GENERAL) {
+    } else if (!isAdminRole(req.auth.role)) {
       where.estado = EstadoBanco.ACTIVO;
     }
 

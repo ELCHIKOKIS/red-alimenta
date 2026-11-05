@@ -7,3 +7,7 @@ dist
 coverage
 *.log
 storage/
+certs/
+.env
+.env.*
+!.env.example

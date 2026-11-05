@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.redalimenta.mobile.data.AppTab
 import com.redalimenta.mobile.data.AppUiState
 import com.redalimenta.mobile.data.AdminUser
+import com.redalimenta.mobile.data.isAdminRole
 import com.redalimenta.mobile.data.ApprovedProduct
 import com.redalimenta.mobile.data.Bank
 import com.redalimenta.mobile.data.BankBeneficiary
@@ -147,6 +148,7 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
     var productBeingEdited by remember { mutableStateOf<Product?>(null) }
     var bankForNewUser by remember { mutableStateOf<Int?>(null) }
     var userBeingEdited by remember { mutableStateOf<AdminUser?>(null) }
+    var userPendingDeletion by remember { mutableStateOf<AdminUser?>(null) }
     var showProfileForm by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -227,8 +229,8 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                 AppTab.BANKS -> BankList(
                     banks = state.banks,
                     selectedBankId = state.selectedBankId,
-                    canCreate = user.rol == "ADMIN_GENERAL",
-                    canManageUsers = user.rol == "ADMIN_GENERAL",
+                    canCreate = isAdminRole(user.rol),
+                    canManageUsers = isAdminRole(user.rol),
                     onSelect = viewModel::selectBank,
                     onAdd = { showBankForm = true },
                     onCreateUser = { bankForNewUser = it },
@@ -242,7 +244,7 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                 AppTab.DONATIONS -> DonationList(
                     donations = state.donations,
                     canRegister = user.rol == "DONANTE",
-                    canReview = user.rol == "BANCO" || user.rol == "ADMIN_GENERAL",
+                    canReview = user.rol == "BANCO" || isAdminRole(user.rol),
                     onAdd = { showDonationForm = true },
                     onReview = viewModel::reviewDonation,
                 )
@@ -250,8 +252,8 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                     requests = state.requests,
                     deliveries = state.deliveries,
                     canCreate = user.rol == "BENEFICIARIO",
-                    canReview = user.rol == "BANCO" || user.rol == "ADMIN_GENERAL",
-                    canDeliver = user.rol == "BANCO" || user.rol == "ADMIN_GENERAL",
+                    canReview = user.rol == "BANCO" || isAdminRole(user.rol),
+                    canDeliver = user.rol == "BANCO" || isAdminRole(user.rol),
                     onCreate = { showRequestForm = true },
                     onReview = { request, approvals ->
                         viewModel.reviewFoodRequest(request, approvals)
@@ -277,8 +279,10 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                     roleFilter = state.adminUserRoleFilter,
                     statusFilter = state.adminUserStatusFilter,
                     currentUserId = user.id,
+                    canDeleteUsers = user.rol == "SUPER_ADMIN",
                     onEdit = { userBeingEdited = it },
                     onSetActive = viewModel::setAdminUserActive,
+                    onDelete = { userPendingDeletion = it },
                     onFilter = viewModel::filterAdminUsers,
                     onPage = viewModel::pageAdminUsers,
                 )
@@ -329,6 +333,30 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
             onSave = { name, email ->
                 viewModel.updateAdminUser(userToEdit.id, name, email)
                 userBeingEdited = null
+            },
+        )
+    }
+    userPendingDeletion?.let { userToDelete ->
+        AlertDialog(
+            onDismissRequest = { userPendingDeletion = null },
+            title = { Text("Eliminar usuario permanentemente") },
+            text = {
+                Text(
+                    "Se eliminará la cuenta de ${userToDelete.nombre} (${userToDelete.email}), " +
+                        "junto con sus solicitudes, donaciones, entregas pendientes, registros de auditoría " +
+                        "y documentos. Las entregas confirmadas no se pueden eliminar. Esta acción no se puede deshacer.",
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.deleteAdminUser(userToDelete.id)
+                    userPendingDeletion = null
+                }) {
+                    Text("Eliminar definitivamente")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { userPendingDeletion = null }) { Text("Cancelar") }
             },
         )
     }
@@ -540,8 +568,10 @@ private fun AdminUserList(
     roleFilter: String?,
     statusFilter: String?,
     currentUserId: Int,
+    canDeleteUsers: Boolean,
     onEdit: (AdminUser) -> Unit,
     onSetActive: (AdminUser, Boolean) -> Unit,
+    onDelete: (AdminUser) -> Unit,
     onFilter: (String?, String?) -> Unit,
     onPage: (Int) -> Unit,
 ) {
@@ -567,7 +597,7 @@ private fun AdminUserList(
                         label = { Text("Todos (${counts?.total ?: 0})") },
                     )
                 }
-                items(listOf("ADMIN_GENERAL", "BANCO", "DONANTE", "BENEFICIARIO")) { role ->
+                items(listOf("ADMIN_GENERAL", "SUPER_ADMIN", "BANCO", "DONANTE", "BENEFICIARIO")) { role ->
                     FilterChip(
                         selected = roleFilter == role,
                         onClick = { onFilter(if (roleFilter == role) null else role, statusFilter) },
@@ -614,10 +644,17 @@ private fun AdminUserList(
                         val banks = user.membresias.joinToString { it.banco.nombre }
                         if (banks.isNotBlank()) Text("Bancos: $banks")
                         Row {
-                            TextButton(onClick = { onEdit(user) }) { Text("Editar") }
+                            if (user.rol != "SUPER_ADMIN" || canDeleteUsers) {
+                                TextButton(onClick = { onEdit(user) }) { Text("Editar") }
+                            }
                             if (user.id != currentUserId) {
-                                TextButton(onClick = { onSetActive(user, user.estado != "ACTIVA") }) {
-                                    Text(if (user.estado == "ACTIVA") "Suspender" else "Reactivar")
+                                if (user.rol != "SUPER_ADMIN" || canDeleteUsers) {
+                                    TextButton(onClick = { onSetActive(user, user.estado != "ACTIVA") }) {
+                                        Text(if (user.estado == "ACTIVA") "Suspender" else "Reactivar")
+                                    }
+                                    if (canDeleteUsers) {
+                                        TextButton(onClick = { onDelete(user) }) { Text("Eliminar") }
+                                    }
                                 }
                             }
                         }
@@ -648,6 +685,7 @@ private fun AdminUserList(
 
 private fun roleLabel(role: String): String = when (role) {
     "ADMIN_GENERAL" -> "Administrador"
+    "SUPER_ADMIN" -> "Superadministrador"
     "BANCO" -> "Banco"
     "DONANTE" -> "Donante"
     "BENEFICIARIO" -> "Beneficiario"

@@ -22,7 +22,7 @@ export const registrationDocumentUpload = multer({
   },
 }).single('documento');
 
-function getDocumentsDirectory(): string {
+export function getDocumentsDirectory(): string {
   const configuredDirectory = process.env.DOCUMENTS_DIR;
   return configuredDirectory
     ? path.resolve(configuredDirectory)

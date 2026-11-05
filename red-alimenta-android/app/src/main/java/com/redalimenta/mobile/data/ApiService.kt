@@ -148,6 +148,9 @@ interface ApiService {
         @Body payload: AdminUserUpdatePayload,
     ): AdminUser
 
+    @DELETE("api/admin/users/{id}")
+    suspend fun deleteUser(@Path("id") id: Int): AdminUserDeleteResponse
+
     @POST("api/banks/{bankId}/users")
     suspend fun createBankUser(
         @Path("bankId") bankId: Int,

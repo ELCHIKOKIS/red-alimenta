@@ -1,13 +1,20 @@
 import { NextFunction, Request, Response } from 'express';
+import { unlink } from 'node:fs/promises';
+import path from 'node:path';
 import {
   EstadoCuenta,
+  EstadoDonacion,
+  EstadoEntrega,
   EstadoSolicitudRegistro,
   EstadoVerificacion,
   Prisma,
   RolUsuario,
+  TipoMovimientoInventario,
 } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
+import { getDocumentsDirectory } from './registrationDocumentsController';
+import { ADMIN_ROLES } from '../lib/roles';
 
 function requiredText(value: unknown, field: string, maxLength: number): string {
   if (typeof value !== 'string' || value.trim() === '' || value.trim().length > maxLength) {
@@ -127,16 +134,27 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
       if (userId === req.auth?.userId && data.estado === EstadoCuenta.SUSPENDIDA) {
         throw new AppError('You cannot suspend your own account', 409);
       }
+      if (current.rol === RolUsuario.SUPER_ADMIN && req.auth?.role !== RolUsuario.SUPER_ADMIN) {
+        throw new AppError('Only a super administrator can modify a super administrator', 403);
+      }
       if (
-        current.rol === RolUsuario.ADMIN_GENERAL
+        ADMIN_ROLES.includes(current.rol)
         && current.estado === EstadoCuenta.ACTIVA
         && data.estado === EstadoCuenta.SUSPENDIDA
       ) {
         const activeAdmins = await tx.usuario.count({
-          where: { rol: RolUsuario.ADMIN_GENERAL, estado: EstadoCuenta.ACTIVA },
+          where: { rol: { in: ADMIN_ROLES }, estado: EstadoCuenta.ACTIVA },
         });
         if (activeAdmins <= 1) {
           throw new AppError('The last active administrator cannot be suspended', 409);
+        }
+        if (current.rol === RolUsuario.SUPER_ADMIN) {
+          const activeSuperAdmins = await tx.usuario.count({
+            where: { rol: RolUsuario.SUPER_ADMIN, estado: EstadoCuenta.ACTIVA },
+          });
+          if (activeSuperAdmins <= 1) {
+            throw new AppError('The last active super administrator cannot be suspended', 409);
+          }
         }
       }
       const user = await tx.usuario.update({
@@ -160,6 +178,309 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return next(new AppError('An account with that email already exists', 409));
     }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return next(new AppError('User not found', 404));
+    }
+    next(error);
+  }
+}
+
+export async function deleteUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!req.auth || req.auth.role !== RolUsuario.SUPER_ADMIN) {
+      throw new AppError('Only a super administrator can permanently delete users', 403);
+    }
+    const userId = parsePositiveInteger(req.params.id, 'user id');
+    if (userId === req.auth.userId) {
+      throw new AppError('You cannot permanently delete your own account', 409);
+    }
+
+    const storedDocumentNames = await prisma.$transaction(async (tx) => {
+      const user = await tx.usuario.findUnique({
+        where: { id: userId },
+        include: {
+          donante: { select: { id: true, organizacion: true } },
+          beneficiario: { select: { id: true, nombreOrganizacion: true } },
+        },
+      });
+      if (!user) throw new AppError('User not found', 404);
+      if (user.donante) {
+        const donorReferences = [user.nombre, user.email, user.donante.organizacion]
+          .filter((reference): reference is string => Boolean(reference));
+        const legacyDonations = await tx.donacion.count({
+          where: {
+            donanteId: null,
+            donante_referencia: { in: donorReferences },
+          },
+        });
+        if (legacyDonations > 0) {
+          throw new AppError(
+            'This account may have legacy donations without a linked donor profile; reconcile those records before deletion',
+            409,
+          );
+        }
+      }
+      if (user.beneficiario) {
+        const beneficiaryReferences = [
+          user.nombre,
+          user.email,
+          user.beneficiario.nombreOrganizacion,
+        ];
+        const legacyDeliveries = await tx.entrega.count({
+          where: {
+            beneficiarioId: null,
+            beneficiario_referencia: { in: beneficiaryReferences },
+          },
+        });
+        if (legacyDeliveries > 0) {
+          throw new AppError(
+            'This account may have legacy deliveries without a linked beneficiary profile; reconcile those records before deletion',
+            409,
+          );
+        }
+      }
+      if (user.rol === RolUsuario.SUPER_ADMIN) {
+        const activeSuperAdmins = await tx.usuario.count({
+          where: { rol: RolUsuario.SUPER_ADMIN, estado: EstadoCuenta.ACTIVA },
+        });
+        if (user.estado === EstadoCuenta.ACTIVA && activeSuperAdmins <= 1) {
+          throw new AppError('The last active super administrator cannot be deleted', 409);
+        }
+      }
+
+      const registrationRequests = await tx.solicitudRegistro.findMany({
+        where: {
+          OR: [
+            { solicitanteId: userId },
+            ...(user.beneficiario ? [{ beneficiarioId: user.beneficiario.id }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      const registrationIds = registrationRequests.map((request) => request.id);
+      const documents = registrationIds.length
+        ? await tx.documentoVerificacion.findMany({
+          where: { solicitudRegistroId: { in: registrationIds } },
+          select: { nombreAlmacenado: true },
+        })
+        : [];
+
+      const requests = user.beneficiario
+        ? await tx.solicitudAlimentos.findMany({
+          where: { beneficiarioId: user.beneficiario.id },
+          include: { detalles: true },
+        })
+        : [];
+      const requestIds = requests.map((request) => request.id);
+      const deliveryConditions: Prisma.EntregaWhereInput[] = [];
+      if (user.beneficiario) deliveryConditions.push({ beneficiarioId: user.beneficiario.id });
+      if (requestIds.length) deliveryConditions.push({ solicitudId: { in: requestIds } });
+      const deliveries = deliveryConditions.length
+        ? await tx.entrega.findMany({
+          where: { OR: deliveryConditions },
+          include: { detalles: { include: { movimiento: true } } },
+        })
+        : [];
+
+      if (deliveries.some((delivery) => delivery.estado === EstadoEntrega.CONFIRMADA)) {
+        throw new AppError(
+          'This account has confirmed deliveries that cannot be removed without falsifying completed transactions',
+          409,
+        );
+      }
+      const requestIdSet = new Set(requestIds);
+      for (const delivery of deliveries) {
+        if (
+          !delivery.solicitudId
+          || !requestIdSet.has(delivery.solicitudId)
+          || delivery.detalles.length === 0
+          || delivery.detalles.some((detail) => (
+            !detail.movimiento
+            || detail.movimiento.tipo !== TipoMovimientoInventario.ENTREGA_REGISTRADA
+            || detail.movimiento.cantidad !== detail.cantidad
+          ))
+        ) {
+          throw new AppError(
+            'This account has an untracked or inconsistent delivery; reconcile inventory before deleting it',
+            409,
+          );
+        }
+      }
+
+      const inventoryChanges = new Map<string, {
+        bancoId: number;
+        productoId: number;
+        stockActual: number;
+        stockReservado: number;
+      }>();
+      const inventoryChange = (bancoId: number, productoId: number) => {
+        const key = `${bancoId}:${productoId}`;
+        let change = inventoryChanges.get(key);
+        if (!change) {
+          change = { bancoId, productoId, stockActual: 0, stockReservado: 0 };
+          inventoryChanges.set(key, change);
+        }
+        return change;
+      };
+
+      for (const request of requests) {
+        for (const detail of request.detalles) {
+          inventoryChange(request.bancoId, detail.productoId).stockReservado -= detail.cantidadAprobada;
+        }
+      }
+      const deliveryIds = deliveries.map((delivery) => delivery.id);
+      for (const delivery of deliveries) {
+        if (!delivery.bancoId) {
+          throw new AppError('Delivery has no bank; reconcile inventory before deleting this account', 409);
+        }
+        for (const detail of delivery.detalles) {
+          const change = inventoryChange(delivery.bancoId, detail.productoId);
+          change.stockActual += detail.cantidad;
+          change.stockReservado += detail.cantidad;
+        }
+      }
+      for (const change of inventoryChanges.values()) {
+        const inventory = await tx.inventario.findUnique({
+          where: {
+            bancoId_productoId: {
+              bancoId: change.bancoId,
+              productoId: change.productoId,
+            },
+          },
+        });
+        if (
+          !inventory
+          || inventory.stockReservado + change.stockReservado < 0
+          || inventory.stockActual + change.stockActual
+            < inventory.stockReservado + change.stockReservado
+        ) {
+          throw new AppError(
+            'Inventory cannot be reconciled safely; adjust stock before deleting this account',
+            409,
+          );
+        }
+        await tx.inventario.update({
+          where: { id: inventory.id },
+          data: {
+            stockActual: { increment: change.stockActual },
+            stockReservado: { increment: change.stockReservado },
+          },
+        });
+      }
+
+      const donations = await tx.donacion.findMany({
+        where: {
+          OR: [
+            ...(user.donante ? [{ donanteId: user.donante.id }] : []),
+            ...(user.beneficiario ? [{ beneficiarioId: user.beneficiario.id }] : []),
+          ],
+        },
+        select: {
+          id: true,
+          bancoId: true,
+          producto_id: true,
+          cantidad: true,
+          estado: true,
+        },
+      });
+      for (const donation of donations) {
+        const movements = await tx.movimientoInventario.findMany({
+          where: { donacionId: donation.id },
+        });
+        if (donation.estado === EstadoDonacion.ACEPTADA) {
+          if (
+            movements.length !== 1
+            || movements[0].tipo !== TipoMovimientoInventario.DONACION_ACEPTADA
+            || movements[0].cantidad !== donation.cantidad
+          ) {
+            throw new AppError(
+              'An accepted donation has no reliable inventory movement; reconcile stock before deleting this account',
+              409,
+            );
+          }
+          const inventory = await tx.inventario.findUnique({
+            where: {
+              bancoId_productoId: {
+                bancoId: donation.bancoId,
+                productoId: donation.producto_id,
+              },
+            },
+          });
+          if (
+            !inventory
+            || inventory.stockActual - donation.cantidad < inventory.stockReservado
+          ) {
+            throw new AppError(
+              'Accepted donation stock has been reserved or consumed; adjust inventory before deleting this account',
+              409,
+            );
+          }
+          await tx.inventario.update({
+            where: { id: inventory.id },
+            data: { stockActual: { decrement: donation.cantidad } },
+          });
+        } else if (movements.length > 0) {
+          throw new AppError(
+            'Donation inventory history is inconsistent; reconcile stock before deleting this account',
+            409,
+          );
+        }
+      }
+
+      if (deliveryIds.length) {
+        const deliveryDetailIds = deliveries.flatMap((delivery) => (
+          delivery.detalles.map((detail) => detail.id)
+        ));
+        await tx.movimientoInventario.deleteMany({
+          where: { detalleEntregaId: { in: deliveryDetailIds } },
+        });
+        await tx.detalleEntrega.deleteMany({ where: { entregaId: { in: deliveryIds } } });
+        await tx.entrega.deleteMany({ where: { id: { in: deliveryIds } } });
+      }
+      if (requestIds.length) {
+        await tx.detalleSolicitud.deleteMany({ where: { solicitudId: { in: requestIds } } });
+        await tx.solicitudAlimentos.deleteMany({ where: { id: { in: requestIds } } });
+      }
+
+      const donationIds = donations.map((donation) => donation.id);
+      if (donationIds.length) {
+        await tx.movimientoInventario.deleteMany({ where: { donacionId: { in: donationIds } } });
+        await tx.donacion.deleteMany({ where: { id: { in: donationIds } } });
+      }
+      if (registrationIds.length) {
+        await tx.documentoVerificacion.deleteMany({
+          where: { solicitudRegistroId: { in: registrationIds } },
+        });
+        await tx.solicitudRegistro.deleteMany({ where: { id: { in: registrationIds } } });
+      }
+      await tx.auditoria.deleteMany({ where: { usuarioId: userId } });
+      await tx.membresiaBanco.deleteMany({ where: { usuarioId: userId } });
+      if (user.donante) await tx.donante.delete({ where: { id: user.donante.id } });
+      if (user.beneficiario) {
+        await tx.beneficiario.delete({ where: { id: user.beneficiario.id } });
+      }
+      await tx.usuario.delete({ where: { id: userId } });
+      return documents.map((document) => document.nombreAlmacenado);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    let documentCleanupWarnings = 0;
+    for (const storedName of storedDocumentNames) {
+      if (!/^[0-9a-f-]{36}\.(pdf|jpg|png)$/i.test(storedName)) {
+        documentCleanupWarnings += 1;
+        console.error('Unable to remove verification document with an invalid stored name');
+        continue;
+      }
+      try {
+        await unlink(path.join(getDocumentsDirectory(), storedName));
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+          documentCleanupWarnings += 1;
+          console.error('Unable to remove a deleted user verification document:', error);
+        }
+      }
+    }
+    res.json({ deleted: true, documentCleanupWarnings });
+  } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return next(new AppError('User not found', 404));
     }

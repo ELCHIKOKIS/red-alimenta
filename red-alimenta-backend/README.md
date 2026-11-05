@@ -61,6 +61,22 @@ npm.cmd run admin:create
 
 No se crea una cuenta ni una contraseña predeterminada.
 
+## Superadministrador y eliminación permanente
+
+`SUPER_ADMIN` tiene las mismas funciones operativas que `ADMIN_GENERAL`, además de poder eliminar permanentemente usuarios. La promoción no crea otra cuenta ni cambia contraseñas: después de hacer una copia de seguridad y aplicar la migración pendiente, configura temporalmente `SUPER_ADMIN_EMAIL` con el correo de un administrador general activo ya existente y ejecuta:
+
+```powershell
+npm.cmd run prisma:migrate
+npm.cmd run prisma:generate
+$env:SUPER_ADMIN_EMAIL = 'correo-admin-existente'
+npm.cmd run admin:promote-super
+Remove-Item Env:SUPER_ADMIN_EMAIL
+```
+
+La promoción es de una sola ejecución y falla si ya existe un superadministrador o si la cuenta indicada no es un administrador general activo. Elimina `SUPER_ADMIN_EMAIL` del entorno al terminar. No se aplica ninguna migración automáticamente al iniciar la API.
+
+La eliminación se limita a `SUPER_ADMIN`, no permite borrar la propia cuenta ni al último superadministrador activo. Elimina los datos propios de donante o beneficiario, sus solicitudes, donaciones y documentos, además de los registros de auditoría atribuidos al usuario. Las entregas confirmadas no se borran porque representan operaciones físicas completadas. El sistema rechaza también el borrado cuando la trazabilidad de movimientos no permite reconciliar el inventario con seguridad, cuando el stock aceptado ya está reservado o consumido, o cuando un registro legado solo contiene una referencia de texto que no permite asociarlo con seguridad a una cuenta. Esos casos requieren reconciliación manual. Los movimientos de inventario independientes se conservan para mantener la contabilidad y se desvinculan del usuario al borrarlo. Los documentos se eliminan del almacenamiento después de confirmar la transacción; si falla la limpieza, la respuesta indica cuántos archivos requieren revisión.
+
 ## Ejecutar
 
 Con MySQL disponible y la migración aplicada:

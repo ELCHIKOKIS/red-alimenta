@@ -9,6 +9,7 @@ datasource db {
 
 enum RolUsuario {
   ADMIN_GENERAL
+  SUPER_ADMIN
   BANCO
   DONANTE
   BENEFICIARIO

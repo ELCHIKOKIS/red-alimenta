@@ -1,13 +1,49 @@
+import java.net.URI
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val apiBaseUrl = providers.gradleProperty("apiBaseUrl")
-    .orElse("http://10.0.2.2:4000/")
-    .get()
-    .trimEnd('/') + "/"
+fun normalizeApiBaseUrl(value: String, allowLocalHttp: Boolean): String {
+    val normalized = value.trim().let { if (it.endsWith("/")) it else "$it/" }
+    val uri = URI(normalized)
+    val isHttps = uri.scheme.equals("https", ignoreCase = true)
+    val isLocalHttp = allowLocalHttp
+        && uri.scheme.equals("http", ignoreCase = true)
+        && uri.host in setOf("10.0.2.2", "localhost", "127.0.0.1")
+
+    require(
+        uri.isAbsolute
+            && uri.host != null
+            && uri.rawUserInfo == null
+            && uri.rawQuery == null
+            && uri.rawFragment == null
+            && (isHttps || isLocalHttp),
+    ) {
+        "API base URL must use HTTPS${if (allowLocalHttp) " (HTTP is allowed only for localhost)" else ""}"
+    }
+
+    return normalized
+}
+
+val defaultApiBaseUrl = "https://red-alimenta-api.onrender.com/"
+
+val debugApiBaseUrl = normalizeApiBaseUrl(
+    providers.gradleProperty("debugApiBaseUrl")
+        .orElse(providers.gradleProperty("apiBaseUrl"))
+        .orElse(defaultApiBaseUrl)
+        .get(),
+    allowLocalHttp = true,
+)
+val releaseApiBaseUrl = normalizeApiBaseUrl(
+    providers.gradleProperty("releaseApiBaseUrl")
+        .orElse(providers.gradleProperty("apiBaseUrl"))
+        .orElse(defaultApiBaseUrl)
+        .get(),
+    allowLocalHttp = false,
+)
 
 android {
     namespace = "com.redalimenta.mobile"
@@ -19,7 +55,6 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildFeatures {
@@ -29,9 +64,11 @@ android {
 
     buildTypes {
         debug {
+            buildConfigField("String", "API_BASE_URL", "\"$debugApiBaseUrl\"")
             manifestPlaceholders["usesCleartextTraffic"] = "true"
         }
         release {
+            buildConfigField("String", "API_BASE_URL", "\"$releaseApiBaseUrl\"")
             isMinifyEnabled = false
             manifestPlaceholders["usesCleartextTraffic"] = "false"
         }

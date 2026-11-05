@@ -12,8 +12,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "admin:create": "tsx src/scripts/bootstrapAdmin.ts",
+    "admin:promote-super": "tsx src/scripts/promoteSuperAdmin.ts",
     "test": "npm run build && npm run test:unit",
-    "test:unit": "tsx --test src/lib/auth.test.ts"
+    "test:unit": "tsx --test src/lib/auth.test.ts src/lib/roles.test.ts"
   },
   "keywords": [],
   "author": "",

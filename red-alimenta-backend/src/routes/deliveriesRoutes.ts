@@ -2,19 +2,20 @@ import { Router } from 'express';
 import { RolUsuario } from '@prisma/client';
 import { confirmDelivery, createDelivery, listDeliveries } from '../controllers/deliveriesController';
 import { authenticate, authorize } from '../middleware/authMiddleware';
+import { ADMIN_ROLES } from '../lib/roles';
 
 const router = Router();
 
 router.get(
   '/',
   authenticate,
-  authorize(RolUsuario.ADMIN_GENERAL, RolUsuario.BANCO, RolUsuario.BENEFICIARIO),
+  authorize(...ADMIN_ROLES, RolUsuario.BANCO, RolUsuario.BENEFICIARIO),
   listDeliveries,
 );
 router.post(
   '/',
   authenticate,
-  authorize(RolUsuario.BANCO, RolUsuario.ADMIN_GENERAL),
+  authorize(RolUsuario.BANCO, ...ADMIN_ROLES),
   createDelivery,
 );
 router.post(

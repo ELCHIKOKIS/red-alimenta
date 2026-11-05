@@ -10,15 +10,15 @@ Aplicación única en Kotlin y Jetpack Compose, conectada al backend de RED-ALIM
 
 ## Configurar la API
 
-Para el emulador Android, la URL de desarrollo predeterminada es `http://10.0.2.2:4000/`. El emulador usa `10.0.2.2` para conectarse al backend que se ejecuta en el equipo anfitrión.
+Por defecto, tanto la variante `debug` como la variante `release` se conectan a la API desplegada en Render: `https://red-alimenta-api.onrender.com/`.
 
-Para usar otra URL, compila con una URL base que termine en `/`:
+Si deseas conectar el emulador o un dispositivo al backend local durante el desarrollo, debes especificar la URL local explícitamente mediante las propiedades Gradle `debugApiBaseUrl` o `apiBaseUrl` (por ejemplo, con un parámetro `-P`, o definiéndola en `gradle.properties` o `local.properties`):
 
 ```powershell
-.\gradlew.bat :app:assembleDebug -PapiBaseUrl=https://tu-api.example/
+.\gradlew.bat :app:assembleDebug -PdebugApiBaseUrl=http://10.0.2.2:4000/
 ```
 
-La variante `release` bloquea HTTP sin cifrar. Usa HTTPS en una API desplegada y no incluyas contraseñas ni tokens en la configuración de Gradle o en el repositorio.
+La URL de `release` debe usar HTTPS; Gradle rechaza HTTP para esa variante y el manifiesto también bloquea tráfico sin cifrar. En `debug`, HTTP se permite únicamente mediante selección explícita y solo para `10.0.2.2`, `localhost` o `127.0.0.1`. Estas propiedades solo contienen la URL pública de la API; no incluyas contraseñas ni tokens en la configuración de Gradle o en el repositorio.
 
 ## Compilar y ejecutar
 

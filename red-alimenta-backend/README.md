@@ -51,6 +51,8 @@ npm.cmd run prisma:migrate
 
 Este comando aplica migraciones pendientes y no debe sustituirse por `prisma db push`. La migración no se ejecuta automáticamente al iniciar la API.
 
+`prisma/schema.prisma` es el esquema canónico. Las migraciones existentes se conservan en orden como historial; no se deben consolidar ni eliminar sin una estrategia de re-baseline coordinada para todos los entornos, porque puede romper `prisma migrate deploy` en Aiven o Render.
+
 ## Crear el primer administrador
 
 El registro público solo permite solicitar cuentas de donante o beneficiario. El primer administrador se crea manualmente y el script se detiene si ya existe uno. Configura localmente `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` en `.env`; usa una contraseña propia de al menos 12 caracteres. Luego ejecuta:
@@ -60,6 +62,16 @@ npm.cmd run admin:create
 ```
 
 No se crea una cuenta ni una contraseña predeterminada.
+
+Para crear el primer `SUPER_ADMIN` en una base sin usuarios, configura localmente `BOOTSTRAP_SUPER_ADMIN_NAME`, `BOOTSTRAP_SUPER_ADMIN_EMAIL` y `BOOTSTRAP_SUPER_ADMIN_PASSWORD` en `.env`; usa una contraseña propia de al menos 12 caracteres. El script falla sin crear una cuenta si ya existe cualquier usuario. Después de aplicar las migraciones, ejecuta:
+
+```powershell
+npm.cmd run prisma:migrate
+npm.cmd run prisma:generate
+npm.cmd run superadmin:create
+```
+
+El script guarda la contraseña con el hash scrypt usado por el backend. No establece credenciales predeterminadas; elimina las variables `BOOTSTRAP_SUPER_ADMIN_*` del entorno al terminar.
 
 ## Superadministrador y eliminación permanente
 

@@ -130,10 +130,11 @@ class RedAlimentaViewModel(
             SessionStore.saveToken(response.accessToken)
             val user = api.currentUser()
             mutableState.update {
-                it.copy(
+                AppUiState(
                     user = user,
                     selectedBankId = user.membresias.firstOrNull()?.banco?.id,
                     selectedTab = tabsFor(user.rol).first(),
+                    isLoading = true,
                 )
             }
             if (user.estado == "ACTIVA") loadData()

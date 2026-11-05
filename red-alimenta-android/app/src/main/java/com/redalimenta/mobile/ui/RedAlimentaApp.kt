@@ -51,7 +51,9 @@ import androidx.compose.ui.unit.dp
 import com.redalimenta.mobile.data.AppTab
 import com.redalimenta.mobile.data.AppUiState
 import com.redalimenta.mobile.data.AdminUser
+import com.redalimenta.mobile.data.displayRoleName
 import com.redalimenta.mobile.data.isAdminRole
+import com.redalimenta.mobile.data.isSuperAdmin
 import com.redalimenta.mobile.data.ApprovedProduct
 import com.redalimenta.mobile.data.Bank
 import com.redalimenta.mobile.data.BankBeneficiary
@@ -167,7 +169,7 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                 title = {
                     Column {
                         Text("RED-ALIMENTA", fontWeight = FontWeight.Bold)
-                        Text("${user.nombre} · ${user.rol}", style = MaterialTheme.typography.labelMedium)
+                        Text("${user.nombre} · ${displayRoleName(user.rol)}", style = MaterialTheme.typography.labelMedium)
                     }
                 },
                 actions = {
@@ -279,7 +281,7 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                     roleFilter = state.adminUserRoleFilter,
                     statusFilter = state.adminUserStatusFilter,
                     currentUserId = user.id,
-                    canDeleteUsers = user.rol == "SUPER_ADMIN",
+                    canDeleteUsers = isSuperAdmin(user.rol),
                     onEdit = { userBeingEdited = it },
                     onSetActive = viewModel::setAdminUserActive,
                     onDelete = { userPendingDeletion = it },
@@ -601,7 +603,7 @@ private fun AdminUserList(
                     FilterChip(
                         selected = roleFilter == role,
                         onClick = { onFilter(if (roleFilter == role) null else role, statusFilter) },
-                        label = { Text("${roleLabel(role)} (${counts?.byRole?.get(role) ?: 0})") },
+                        label = { Text("${displayRoleName(role)} (${counts?.byRole?.get(role) ?: 0})") },
                     )
                 }
             }
@@ -640,15 +642,15 @@ private fun AdminUserList(
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(user.nombre, fontWeight = FontWeight.SemiBold)
                         Text(user.email)
-                        Text("Rol: ${roleLabel(user.rol)} · Estado: ${statusLabel(user.estado)}")
+                        Text("Rol: ${displayRoleName(user.rol)} · Estado: ${statusLabel(user.estado)}")
                         val banks = user.membresias.joinToString { it.banco.nombre }
                         if (banks.isNotBlank()) Text("Bancos: $banks")
                         Row {
-                            if (user.rol != "SUPER_ADMIN" || canDeleteUsers) {
+                            if (!isSuperAdmin(user.rol) || canDeleteUsers) {
                                 TextButton(onClick = { onEdit(user) }) { Text("Editar") }
                             }
                             if (user.id != currentUserId) {
-                                if (user.rol != "SUPER_ADMIN" || canDeleteUsers) {
+                                if (!isSuperAdmin(user.rol) || canDeleteUsers) {
                                     TextButton(onClick = { onSetActive(user, user.estado != "ACTIVA") }) {
                                         Text(if (user.estado == "ACTIVA") "Suspender" else "Reactivar")
                                     }
@@ -681,15 +683,6 @@ private fun AdminUserList(
             }
         }
     }
-}
-
-private fun roleLabel(role: String): String = when (role) {
-    "ADMIN_GENERAL" -> "Administrador"
-    "SUPER_ADMIN" -> "Superadministrador"
-    "BANCO" -> "Banco"
-    "DONANTE" -> "Donante"
-    "BENEFICIARIO" -> "Beneficiario"
-    else -> role
 }
 
 private fun statusLabel(status: String): String = when (status) {
@@ -1073,7 +1066,7 @@ private fun ProfileSummary(user: User, onEdit: () -> Unit) {
             ) {
                 Text(user.nombre, fontWeight = FontWeight.SemiBold)
                 Text(user.email)
-                Text("Rol: ${user.rol} · Estado: ${user.estado}")
+                Text("Rol: ${displayRoleName(user.rol)} · Estado: ${statusLabel(user.estado)}")
                 user.telefono?.let { Text("Teléfono: $it") }
                 user.donante?.organizacion?.let { Text("Organización: $it") }
                 user.beneficiario?.let {

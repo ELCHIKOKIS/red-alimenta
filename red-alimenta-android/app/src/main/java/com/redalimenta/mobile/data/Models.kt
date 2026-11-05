@@ -116,6 +116,17 @@ data class AdminUserDeleteResponse(
 
 fun isAdminRole(role: String): Boolean = role == "ADMIN_GENERAL" || role == "SUPER_ADMIN"
 
+fun isSuperAdmin(role: String): Boolean = role == "SUPER_ADMIN"
+
+fun displayRoleName(role: String): String = when (role) {
+    "ADMIN_GENERAL" -> "Administrador"
+    "SUPER_ADMIN" -> "Superadministrador"
+    "BANCO" -> "Banco"
+    "DONANTE" -> "Donante"
+    "BENEFICIARIO" -> "Beneficiario"
+    else -> role
+}
+
 data class BankDonor(
     val id: Int,
     val organizacion: String?,

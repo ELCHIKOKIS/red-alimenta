@@ -368,6 +368,7 @@ fun PendingRegistrationScreen(
     user: User,
     isLoading: Boolean,
     error: String?,
+    onChangePhoto: () -> Unit,
     onRefresh: () -> Unit,
     onUploadDocument: () -> Unit,
     onEditProfile: () -> Unit,
@@ -383,6 +384,16 @@ fun PendingRegistrationScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Registro en revisión", style = MaterialTheme.typography.headlineSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ProfilePhoto(
+                name = user.nombre,
+                imageUrl = user.fotoPerfilUrl,
+                modifier = Modifier.size(64.dp),
+            )
+            TextButton(onClick = onChangePhoto, enabled = !isLoading) {
+                Text(if (user.fotoPerfilUrl.isNullOrBlank()) "Añadir foto de perfil" else "Cambiar foto")
+            }
+        }
         Text(user.beneficiario?.nombreOrganizacion.orEmpty())
         Text("Estado de la cuenta: ${user.estado}")
         Text("Estado de la solicitud: ${registration?.estado ?: user.beneficiario?.estadoVerificacion.orEmpty()}")

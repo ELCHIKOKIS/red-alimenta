@@ -101,6 +101,7 @@ import com.redalimenta.mobile.data.FoodRequest
 import com.redalimenta.mobile.data.InventoryItem
 import com.redalimenta.mobile.data.Product
 import com.redalimenta.mobile.data.RedAlimentaViewModel
+import com.redalimenta.mobile.data.prepareProfileImageUpload
 import com.redalimenta.mobile.data.prepareProductImageUpload
 import com.redalimenta.mobile.data.RegistrationRequest
 import com.redalimenta.mobile.data.User
@@ -129,7 +130,35 @@ private data class PendingDeletion(
 fun RedAlimentaApp(viewModel: RedAlimentaViewModel) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var showPendingProfileForm by remember { mutableStateOf(false) }
+    val profilePhotoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val image = withContext(Dispatchers.IO) {
+                        prepareProfileImageUpload(context, uri)
+                    }
+                    viewModel.uploadProfilePhoto(image)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    viewModel.reportError(
+                        error.message ?: "No se pudo preparar la foto de perfil.",
+                    )
+                }
+            }
+        }
+    }
+    val chooseProfilePhoto = {
+        profilePhotoPicker.launch(
+            androidx.activity.result.PickVisualMediaRequest(
+                ActivityResultContracts.PickVisualMedia.ImageOnly,
+            ),
+        )
+    }
     val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             runCatching {
@@ -186,6 +215,7 @@ fun RedAlimentaApp(viewModel: RedAlimentaViewModel) {
                     isLoading = state.isLoading,
                     error = state.error,
                     onRefresh = viewModel::refresh,
+                    onChangePhoto = chooseProfilePhoto,
                     onUploadDocument = { documentPicker.launch("*/*") },
                     onEditProfile = { showPendingProfileForm = true },
                     onSignOut = viewModel::signOut,
@@ -197,7 +227,7 @@ fun RedAlimentaApp(viewModel: RedAlimentaViewModel) {
                     onRefresh = viewModel::refresh,
                     onSignOut = viewModel::signOut,
                 )
-                else -> MainDashboard(viewModel, state)
+                else -> MainDashboard(viewModel, state, chooseProfilePhoto)
             }
             if (showPendingProfileForm && user != null) {
                 ProfileEditDialog(
@@ -215,7 +245,11 @@ fun RedAlimentaApp(viewModel: RedAlimentaViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
+private fun MainDashboard(
+    viewModel: RedAlimentaViewModel,
+    state: AppUiState,
+    onChangeProfilePhoto: () -> Unit,
+) {
     val user = state.user ?: return
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -247,18 +281,11 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                        ) {
-                            Text(
-                                user.nombre.trim().firstOrNull()?.uppercase() ?: "R",
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
+                        ProfilePhoto(
+                            name = user.nombre,
+                            imageUrl = user.fotoPerfilUrl,
+                            modifier = Modifier.size(40.dp),
+                        )
                         Column(modifier = Modifier.padding(start = 10.dp)) {
                             Text("RED-ALIMENTA", fontWeight = FontWeight.Bold)
                             Text(
@@ -458,7 +485,11 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                 AppTab.BANK_DONORS -> BankDonorList(state.bankDonors)
                 AppTab.BANK_BENEFICIARIES -> BankBeneficiaryList(state.bankBeneficiaries)
                 AppTab.BANK_HISTORY -> BankHistoryList(state.bankHistory)
-                AppTab.PROFILE -> ProfileSummary(user, onEdit = { showProfileForm = true })
+                AppTab.PROFILE -> ProfileSummary(
+                    user,
+                    onEdit = { showProfileForm = true },
+                    onChangePhoto = onChangeProfilePhoto,
+                )
             }
         }
     }
@@ -1638,14 +1669,11 @@ private fun ReportList(report: com.redalimenta.mobile.data.SystemReport?) {
 }
 
 @Composable
-private fun ProfileSummary(user: User, onEdit: () -> Unit) {
-    val initials = user.nombre
-        .trim()
-        .split(Regex("\\s+"))
-        .take(2)
-        .mapNotNull { it.firstOrNull() }
-        .joinToString("")
-        .uppercase()
+private fun ProfileSummary(
+    user: User,
+    onEdit: () -> Unit,
+    onChangePhoto: () -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1657,18 +1685,11 @@ private fun ProfileSummary(user: User, onEdit: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                    ) {
-                        Text(
-                            initials.ifBlank { "R" },
-                            modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
+                    ProfilePhoto(
+                        name = user.nombre,
+                        imageUrl = user.fotoPerfilUrl,
+                        modifier = Modifier.size(72.dp),
+                    )
                     Column(modifier = Modifier.padding(start = 12.dp)) {
                         Text(user.nombre, fontWeight = FontWeight.SemiBold)
                         Text(displayRoleName(user.rol), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1684,6 +1705,9 @@ private fun ProfileSummary(user: User, onEdit: () -> Unit) {
                     Text("${it.municipio}, ${it.departamento}")
                 }
             }
+        }
+        Button(onClick = onChangePhoto, modifier = Modifier.fillMaxWidth()) {
+            Text(if (user.fotoPerfilUrl.isNullOrBlank()) "Añadir foto de perfil" else "Cambiar foto de perfil")
         }
         Button(onClick = onEdit, modifier = Modifier.fillMaxWidth()) {
             Text("Editar perfil")

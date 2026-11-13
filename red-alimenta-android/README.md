@@ -33,7 +33,7 @@ El APK se genera en `app/build/outputs/apk/debug/app-debug.apk`.
 ## Flujos disponibles
 
 - Inicio de sesión, registro público de donantes y organizaciones beneficiarias, recuperación de sesión y cierre de sesión.
-- Edición del perfil de usuario; los cambios a los datos de identificación de una organización beneficiaria requieren nueva verificación administrativa.
+- Edición del perfil de usuario y carga de foto JPEG, PNG o WebP (máximo 5 MB); los cambios a los datos de identificación de una organización beneficiaria requieren nueva verificación administrativa.
 - Beneficiarios: consulta de disponibilidad publicada, envío de solicitudes, estado e historial de entregas y carga de documentos PDF/JPEG/PNG (máximo 5 MB).
 - Donantes: registro de donaciones y consulta de sus estados.
 - Bancos: inventario privado, publicación de disponibilidad, revisión de donaciones, aprobación total o parcial de solicitudes, registro de entregas, consulta de donantes, beneficiarios e historial.

@@ -36,6 +36,8 @@ La migración `20261015180000_multibank_foundation` agrega soporte para los nuev
 
 La migración `20261113010000_product_images` agrega `productos.imagen_url` (nullable) y la tabla `imagenes_productos` para guardar fotografías en MySQL. Es aditiva: conserva los productos existentes y permite que sigan usando las imágenes locales por categoría hasta que se cargue una fotografía.
 
+La migración `20261113020000_user_profile_images` agrega la tabla `fotos_perfil` para guardar una fotografía opcional por usuario. No modifica los usuarios existentes; las fotos se guardan en MySQL, con un límite de 5 MB y acceso autenticado.
+
 Para conservar los datos existentes:
 
 - No elimina tablas ni registros existentes.

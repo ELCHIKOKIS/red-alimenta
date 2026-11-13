@@ -6,6 +6,11 @@ import {
 } from '../controllers/registrationDocumentsController';
 import { authenticate } from '../middleware/authMiddleware';
 import rateLimit from 'express-rate-limit';
+import {
+  getProfileImage,
+  profileImageUpload,
+  uploadProfileImage,
+} from '../controllers/profileImagesController';
 
 const router = Router();
 const loginLimiter = rateLimit({
@@ -28,6 +33,8 @@ router.post('/login', loginLimiter, login);
 router.post('/logout', authenticate, logout);
 router.get('/me', authenticate, currentUser);
 router.patch('/me', authenticate, updateProfile);
+router.get('/me/photo', authenticate, getProfileImage);
+router.post('/me/photo', authenticate, profileImageUpload, uploadProfileImage);
 router.post(
   '/beneficiary/documents',
   authenticate,

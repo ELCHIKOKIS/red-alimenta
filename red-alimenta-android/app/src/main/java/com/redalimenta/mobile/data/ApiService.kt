@@ -82,11 +82,17 @@ interface ApiService {
     @DELETE("api/products/{id}")
     suspend fun deactivateProduct(@Path("id") id: Int)
 
+    @DELETE("api/admin/products/{id}")
+    suspend fun deleteProductPermanently(@Path("id") id: Int): DeleteResponse
+
     @GET("api/banks")
     suspend fun getBanks(): List<Bank>
 
     @POST("api/banks")
     suspend fun createBank(@Body payload: BankPayload): Bank
+
+    @DELETE("api/admin/banks/{id}")
+    suspend fun deleteBank(@Path("id") id: Int): DeleteResponse
 
     @GET("api/banks/{bankId}/inventory")
     suspend fun getInventory(@Path("bankId") bankId: Int): List<InventoryItem>
@@ -119,6 +125,9 @@ interface ApiService {
         @Body payload: DonationReviewPayload,
     ): Donation
 
+    @DELETE("api/admin/donations/{id}")
+    suspend fun deleteDonation(@Path("id") id: Int): DeleteResponse
+
     @GET("api/requests")
     suspend fun getRequests(): List<FoodRequest>
 
@@ -134,6 +143,9 @@ interface ApiService {
         @Body payload: RequestReviewPayload,
     ): FoodRequest
 
+    @DELETE("api/admin/requests/{id}")
+    suspend fun deleteRequest(@Path("id") id: Int): DeleteResponse
+
     @GET("api/deliveries")
     suspend fun getDeliveries(): List<Delivery>
 
@@ -145,6 +157,9 @@ interface ApiService {
         @Path("id") id: Int,
         @Body payload: DeliveryConfirmationPayload,
     ): Delivery
+
+    @DELETE("api/admin/deliveries/{id}")
+    suspend fun deleteDelivery(@Path("id") id: Int): DeleteResponse
 
     @GET("api/admin/registration-requests")
     suspend fun getRegistrationRequests(): List<RegistrationRequest>

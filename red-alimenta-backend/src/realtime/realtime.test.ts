@@ -97,3 +97,36 @@ test('recipient rooms are deduplicated and never include a global room', () => {
     ['user:10', 'bank:42', 'role:SUPER_ADMIN'],
   );
 });
+
+test('removing a bank membership revokes only that bank room', async (t) => {
+  const httpServer = createServer();
+  const { io, hub } = createRealtimeSocketServer(httpServer, async (token) => {
+    const identity = identities[token];
+    if (!identity) throw new AppError('Invalid token', 401);
+    return identity;
+  });
+  await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+  const address = httpServer.address() as AddressInfo;
+  const socket = createClient(`http://127.0.0.1:${address.port}`, {
+    auth: { token: 'bankMember' },
+  });
+  t.after(async () => {
+    socket.disconnect();
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('connect_error', reject);
+  });
+
+  let bankEventReceived = false;
+  socket.on('data:changed', () => { bankEventReceived = true; });
+  hub.removeUserFromBank(10, 42);
+  hub.publish({ bankIds: [42] }, { type: 'bank.deleted', resource: 'banks', resourceId: 42 });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(bankEventReceived, false);
+
+  const ownEvent = new Promise<void>((resolve) => socket.once('data:changed', () => resolve()));
+  hub.publish({ userIds: [10] }, { type: 'user.updated', resource: 'users', resourceId: 10 });
+  await ownEvent;
+});

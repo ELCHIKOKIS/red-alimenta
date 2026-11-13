@@ -4,6 +4,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,13 +13,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -27,10 +33,12 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Assignment
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
@@ -71,6 +79,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -100,6 +109,20 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private enum class DeletionKind {
+    BANK,
+    PRODUCT,
+    DONATION,
+    REQUEST,
+    DELIVERY,
+}
+
+private data class PendingDeletion(
+    val kind: DeletionKind,
+    val id: Int,
+    val name: String,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -206,6 +229,7 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
     var bankForNewUser by remember { mutableStateOf<Int?>(null) }
     var userBeingEdited by remember { mutableStateOf<AdminUser?>(null) }
     var userPendingDeletion by remember { mutableStateOf<AdminUser?>(null) }
+    var pendingDeletion by remember { mutableStateOf<PendingDeletion?>(null) }
     var showProfileForm by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -331,18 +355,26 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
             when (state.selectedTab) {
                 AppTab.PRODUCTS -> ProductList(
                     products = state.products,
+                    canDelete = isSuperAdmin(user.rol),
                     onAdd = { productBeingEdited = null; showProductForm = true },
                     onEdit = { productBeingEdited = it; showProductForm = true },
                     onDeactivate = viewModel::deactivateProduct,
+                    onDelete = {
+                        pendingDeletion = PendingDeletion(DeletionKind.PRODUCT, it.id, it.nombre)
+                    },
                 )
                 AppTab.BANKS -> BankList(
                     banks = state.banks,
                     selectedBankId = state.selectedBankId,
                     canCreate = isAdminRole(user.rol),
                     canManageUsers = isAdminRole(user.rol),
+                    canDelete = isSuperAdmin(user.rol),
                     onSelect = viewModel::selectBank,
                     onAdd = { showBankForm = true },
                     onCreateUser = { bankForNewUser = it },
+                    onDelete = {
+                        pendingDeletion = PendingDeletion(DeletionKind.BANK, it.id, it.nombre)
+                    },
                 )
                 AppTab.INVENTORY -> InventoryList(
                     inventory = state.inventory,
@@ -354,8 +386,16 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                     donations = state.donations,
                     canRegister = user.rol == "DONANTE",
                     canReview = user.rol == "BANCO" || isAdminRole(user.rol),
+                    canDelete = isSuperAdmin(user.rol),
                     onAdd = { showDonationForm = true },
                     onReview = viewModel::reviewDonation,
+                    onDelete = {
+                        pendingDeletion = PendingDeletion(
+                            DeletionKind.DONATION,
+                            it.id,
+                            "${it.producto.nombre} · ${it.donanteReferencia}",
+                        )
+                    },
                 )
                 AppTab.REQUESTS -> RequestList(
                     requests = state.requests,
@@ -363,16 +403,32 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                     canCreate = user.rol == "BENEFICIARIO",
                     canReview = user.rol == "BANCO" || isAdminRole(user.rol),
                     canDeliver = user.rol == "BANCO" || isAdminRole(user.rol),
+                    canDelete = isSuperAdmin(user.rol),
                     onCreate = { showRequestForm = true },
                     onReview = { request, approvals ->
                         viewModel.reviewFoodRequest(request, approvals)
                     },
                     onDeliver = { deliveryRequest = it },
+                    onDelete = {
+                        pendingDeletion = PendingDeletion(
+                            DeletionKind.REQUEST,
+                            it.id,
+                            "Solicitud #${it.id}",
+                        )
+                    },
                 )
                 AppTab.DELIVERIES -> DeliveryList(
                     deliveries = state.deliveries,
                     canConfirm = user.rol == "BENEFICIARIO",
+                    canDelete = isSuperAdmin(user.rol),
                     onConfirm = { confirmationDelivery = it },
+                    onDelete = {
+                        pendingDeletion = PendingDeletion(
+                            DeletionKind.DELIVERY,
+                            it.id,
+                            "Entrega #${it.id}",
+                        )
+                    },
                 )
                 AppTab.APPROVALS -> RegistrationList(
                     registrations = state.registrationRequests,
@@ -468,8 +524,9 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
             text = {
                 Text(
                     "Se eliminará la cuenta de ${userToDelete.nombre} (${userToDelete.email}), " +
-                        "junto con sus solicitudes, donaciones, entregas pendientes, registros de auditoría " +
-                        "y documentos. Las entregas confirmadas no se pueden eliminar. Esta acción no se puede deshacer.",
+                        "junto con sus solicitudes, donaciones, entregas pendientes y documentos. " +
+                        "El historial de auditoría se conservará. Las entregas confirmadas no se pueden eliminar. " +
+                        "Esta acción no se puede deshacer.",
                 )
             },
             confirmButton = {
@@ -482,6 +539,53 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
             },
             dismissButton = {
                 TextButton(onClick = { userPendingDeletion = null }) { Text("Cancelar") }
+            },
+        )
+    }
+    pendingDeletion?.let { target ->
+        val details = when (target.kind) {
+            DeletionKind.BANK ->
+                "Se eliminarán el banco, sus membresías, inventario, donaciones, solicitudes y entregas relacionadas. " +
+                    "Las cuentas que solo pertenezcan a este banco también se eliminarán. " +
+                    "El historial de auditoría se conservará. Si el inventario no se puede reconciliar o hay " +
+                    "entregas confirmadas, el servidor rechazará el borrado."
+            DeletionKind.PRODUCT ->
+                "Se eliminarán la fotografía, el inventario y los registros relacionados con este producto. " +
+                    "El borrado se bloqueará si queda stock que no pueda reconciliarse o existen entregas confirmadas. " +
+                    "El historial de auditoría se conservará."
+            DeletionKind.DONATION ->
+                "Se eliminará la donación y su movimiento asociado. Si fue aceptada, solo se podrá borrar cuando " +
+                    "el inventario permita retirar esa cantidad sin afectar reservas. El historial de auditoría se conservará."
+            DeletionKind.REQUEST ->
+                "Se eliminarán la solicitud, sus detalles y las entregas pendientes asociadas, restaurando el inventario " +
+                    "cuando sea seguro. Las entregas confirmadas bloquean el borrado. El historial de auditoría se conservará."
+            DeletionKind.DELIVERY ->
+                "Solo se pueden eliminar entregas pendientes de confirmación con movimientos de inventario verificables. " +
+                    "El inventario se restaurará y el historial de auditoría se conservará."
+        }
+        AlertDialog(
+            onDismissRequest = { pendingDeletion = null },
+            title = { Text("Eliminar ${target.name} permanentemente") },
+            text = { Text("$details Esta acción no se puede deshacer.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        when (target.kind) {
+                            DeletionKind.BANK -> viewModel.deleteBank(target.id)
+                            DeletionKind.PRODUCT -> viewModel.deleteProductPermanently(target.id)
+                            DeletionKind.DONATION -> viewModel.deleteDonation(target.id)
+                            DeletionKind.REQUEST -> viewModel.deleteFoodRequest(target.id)
+                            DeletionKind.DELIVERY -> viewModel.deleteDelivery(target.id)
+                        }
+                        pendingDeletion = null
+                    },
+                    enabled = !state.isLoading,
+                ) {
+                    Text("Confirmar eliminación")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeletion = null }) { Text("Cancelar") }
             },
         )
     }
@@ -587,9 +691,11 @@ private fun Card(
 @Composable
 private fun ProductList(
     products: List<Product>,
+    canDelete: Boolean,
     onAdd: () -> Unit,
     onEdit: (Product) -> Unit,
     onDeactivate: (Int) -> Unit,
+    onDelete: (Product) -> Unit,
 ) {
     var selectedFilter by remember { mutableStateOf("ACTIVOS") }
     var pendingDeactivation by remember { mutableStateOf<Product?>(null) }
@@ -653,6 +759,11 @@ private fun ProductList(
                                         Text("Desactivar")
                                     }
                                 }
+                                if (canDelete) {
+                                    TextButton(onClick = { onDelete(product) }) {
+                                        Text("Eliminar")
+                                    }
+                                }
                             }
                         }
                         pendingDeactivation?.let { product ->
@@ -689,9 +800,11 @@ private fun BankList(
     selectedBankId: Int?,
     canCreate: Boolean,
     canManageUsers: Boolean,
+    canDelete: Boolean,
     onSelect: (Int) -> Unit,
     onAdd: () -> Unit,
     onCreateUser: (Int) -> Unit,
+    onDelete: (Bank) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         if (canCreate) {
@@ -708,17 +821,163 @@ private fun BankList(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(banks, key = { it.id }) { bank ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(bank.nombre, fontWeight = FontWeight.SemiBold)
-                            Text("${bank.municipio}, ${bank.departamento}")
-                            Text(bank.estado)
-                            TextButton(onClick = { onSelect(bank.id) }) {
-                                Text(if (bank.id == selectedBankId) "Banco seleccionado" else "Seleccionar banco")
+                    Card(modifier = Modifier.fillMaxWidth().animateContentSize()) {
+                        Column {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(154.dp)
+                                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.primary,
+                                                MaterialTheme.colorScheme.secondary,
+                                            ),
+                                        ),
+                                    ),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(176.dp)
+                                        .align(Alignment.CenterEnd)
+                                        .background(Color.White.copy(alpha = 0.08f), CircleShape),
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(94.dp)
+                                        .align(Alignment.TopEnd)
+                                        .padding(10.dp)
+                                        .background(Color.White.copy(alpha = 0.08f), CircleShape),
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Surface(
+                                        modifier = Modifier.size(68.dp),
+                                        shape = CircleShape,
+                                        color = Color.White.copy(alpha = 0.16f),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AccountBalance,
+                                            contentDescription = "Banco de alimentos",
+                                            modifier = Modifier.padding(17.dp),
+                                            tint = Color.White,
+                                        )
+                                    }
+                                    Column(
+                                        modifier = Modifier.weight(1f).padding(start = 16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                                    ) {
+                                        Text(
+                                            "BANCO DE ALIMENTOS",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White.copy(alpha = 0.82f),
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        Text(
+                                            bank.nombre,
+                                            style = MaterialTheme.typography.titleLarge,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(50),
+                                            color = Color.White.copy(alpha = 0.16f),
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.VerifiedUser,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = Color.White,
+                                                )
+                                                Text(
+                                                    bank.estado,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color.White,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            if (canManageUsers) {
-                                TextButton(onClick = { onCreateUser(bank.id) }) {
-                                    Text("Crear usuario del banco")
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.LocationOn,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Column(modifier = Modifier.padding(start = 10.dp)) {
+                                        Text(
+                                            "Ubicación",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            "${bank.municipio}, ${bank.departamento}",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    }
+                                }
+                                bank.descripcion?.takeIf { it.isNotBlank() }?.let { description ->
+                                    Text(
+                                        description,
+                                        modifier = Modifier.padding(start = 30.dp),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    TextButton(
+                                        onClick = { onSelect(bank.id) },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Icon(
+                                            if (bank.id == selectedBankId) Icons.Default.CheckCircle
+                                            else Icons.Default.AccountBalance,
+                                            contentDescription = null,
+                                        )
+                                        Text(
+                                            if (bank.id == selectedBankId) "Banco seleccionado"
+                                            else "Seleccionar banco",
+                                        )
+                                    }
+                                    if (canManageUsers) {
+                                        TextButton(onClick = { onCreateUser(bank.id) }) {
+                                            Icon(Icons.Default.People, contentDescription = null)
+                                            Text(" Usuarios")
+                                        }
+                                    }
+                                }
+                                if (canDelete) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End,
+                                    ) {
+                                        TextButton(onClick = { onDelete(bank) }) {
+                                            Text("Eliminar banco")
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1022,8 +1281,10 @@ private fun DonationList(
     donations: List<com.redalimenta.mobile.data.Donation>,
     canRegister: Boolean,
     canReview: Boolean,
+    canDelete: Boolean,
     onAdd: () -> Unit,
     onReview: (Int, Boolean) -> Unit,
+    onDelete: (com.redalimenta.mobile.data.Donation) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -1101,6 +1362,16 @@ private fun DonationList(
                                     }
                                 }
                             }
+                            if (canDelete) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
+                                    TextButton(onClick = { onDelete(donation) }) {
+                                        Text("Eliminar")
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1116,9 +1387,11 @@ private fun RequestList(
     canCreate: Boolean,
     canReview: Boolean,
     canDeliver: Boolean,
+    canDelete: Boolean,
     onCreate: () -> Unit,
     onReview: (FoodRequest, List<ApprovedProduct>?) -> Unit,
     onDeliver: (FoodRequest) -> Unit,
+    onDelete: (FoodRequest) -> Unit,
 ) {
     var requestToApprove by remember { mutableStateOf<FoodRequest?>(null) }
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1174,6 +1447,16 @@ private fun RequestList(
                         ) {
                             TextButton(onClick = { onDeliver(request) }) { Text("Registrar entrega aprobada") }
                         }
+                        if (canDelete) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                TextButton(onClick = { onDelete(request) }) {
+                                    Text("Eliminar solicitud")
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1195,7 +1478,9 @@ private fun RequestList(
 private fun DeliveryList(
     deliveries: List<Delivery>,
     canConfirm: Boolean,
+    canDelete: Boolean,
     onConfirm: (Delivery) -> Unit,
+    onDelete: (Delivery) -> Unit,
 ) {
     if (deliveries.isEmpty()) {
         EmptyState("Aún no hay entregas registradas.")
@@ -1230,6 +1515,16 @@ private fun DeliveryList(
                     }
                     if (canConfirm && delivery.estado == "REGISTRADA") {
                         TextButton(onClick = { onConfirm(delivery) }) { Text("Confirmar recepción") }
+                    }
+                    if (canDelete) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(onClick = { onDelete(delivery) }) {
+                                Text("Eliminar entrega")
+                            }
+                        }
                     }
                 }
             }

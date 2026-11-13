@@ -80,6 +80,10 @@ export class RealtimeHub {
   disconnectSession(sessionId: string): void {
     this.io.in(sessionRoom(sessionId)).disconnectSockets(true);
   }
+
+  removeUserFromBank(userId: number, bankId: number): void {
+    this.io.in(userRoom(userId)).socketsLeave(bankRoom(bankId));
+  }
 }
 
 let activeHub: RealtimeHub | undefined;
@@ -101,4 +105,8 @@ export function disconnectRealtimeUser(userId: number): void {
 
 export function disconnectRealtimeSession(sessionId: string): void {
   activeHub?.disconnectSession(sessionId);
+}
+
+export function removeRealtimeUserFromBank(userId: number, bankId: number): void {
+  activeHub?.removeUserFromBank(userId, bankId);
 }

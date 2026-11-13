@@ -8,6 +8,13 @@ import {
   deleteUser,
   updateUser,
 } from '../controllers/adminController';
+import {
+  deleteBank,
+  deleteDelivery,
+  deleteDonation,
+  deleteProduct,
+  deleteRequest,
+} from '../controllers/superAdminDeletionController';
 import { authenticate, authorize } from '../middleware/authMiddleware';
 import { RolUsuario } from '@prisma/client';
 import { downloadRegistrationDocument } from '../controllers/registrationDocumentsController';
@@ -19,6 +26,11 @@ router.use(authenticate, authorize(...ADMIN_ROLES));
 router.get('/users', listUsers);
 router.patch('/users/:id', updateUser);
 router.delete('/users/:id', authorize(RolUsuario.SUPER_ADMIN), deleteUser);
+router.delete('/banks/:id', authorize(RolUsuario.SUPER_ADMIN), deleteBank);
+router.delete('/products/:id', authorize(RolUsuario.SUPER_ADMIN), deleteProduct);
+router.delete('/donations/:id', authorize(RolUsuario.SUPER_ADMIN), deleteDonation);
+router.delete('/requests/:id', authorize(RolUsuario.SUPER_ADMIN), deleteRequest);
+router.delete('/deliveries/:id', authorize(RolUsuario.SUPER_ADMIN), deleteDelivery);
 router.get('/registration-requests', listRegistrationRequests);
 router.patch('/registration-requests/:id/review', reviewRegistration);
 router.get('/registration-documents/:id', downloadRegistrationDocument);

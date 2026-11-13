@@ -37,6 +37,6 @@ El APK se genera en `app/build/outputs/apk/debug/app-debug.apk`.
 - Beneficiarios: consulta de disponibilidad publicada, envío de solicitudes, estado e historial de entregas y carga de documentos PDF/JPEG/PNG (máximo 5 MB).
 - Donantes: registro de donaciones y consulta de sus estados.
 - Bancos: inventario privado, publicación de disponibilidad, revisión de donaciones, aprobación total o parcial de solicitudes, registro de entregas, consulta de donantes, beneficiarios e historial.
-- Administradores: gestión de bancos y usuarios de banco, revisión de registros de beneficiarios, administración de usuarios, operaciones e informes. El rol `SUPER_ADMIN` puede eliminar permanentemente usuarios; `ADMIN_GENERAL` no muestra esa acción.
+- Administradores: gestión de bancos y usuarios de banco, revisión de registros de beneficiarios, administración de usuarios, operaciones e informes. Solo `SUPER_ADMIN` ve las acciones de eliminación permanente de usuarios, bancos, productos, donaciones, solicitudes y entregas; cada acción pide confirmación y conserva el historial de auditoría.
 
 Los tokens de sesión se protegen con Android Keystore y almacenamiento cifrado local. El APK desactiva las copias de seguridad para evitar restaurar datos cifrados sin la clave correspondiente. El backend sigue siendo responsable de autorizar cada operación y validar existencias.

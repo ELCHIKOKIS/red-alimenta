@@ -273,6 +273,13 @@ class RedAlimentaViewModel(
         }
     }
 
+    fun deleteProductPermanently(id: Int) {
+        launchRequest("Producto y registros relacionados eliminados.") {
+            api.deleteProductPermanently(id)
+            loadData()
+        }
+    }
+
     fun addInventoryProduct(productId: Int) {
         val bankId = mutableState.value.selectedBankId
             ?: return showError("Selecciona un banco antes de modificar su inventario.")
@@ -298,6 +305,13 @@ class RedAlimentaViewModel(
     fun createBank(payload: BankPayload) {
         launchRequest("Banco de alimentos creado.") {
             api.createBank(payload)
+            loadData()
+        }
+    }
+
+    fun deleteBank(id: Int) {
+        launchRequest("Banco y registros relacionados eliminados.") {
+            api.deleteBank(id)
             loadData()
         }
     }
@@ -382,6 +396,13 @@ class RedAlimentaViewModel(
         }
     }
 
+    fun deleteDonation(id: Int) {
+        launchRequest("Donación eliminada.") {
+            api.deleteDonation(id)
+            loadData()
+        }
+    }
+
     fun createFoodRequest(bankId: Int, items: List<RequestedProduct>) {
         launchRequest("Solicitud enviada al banco.") {
             api.createRequest(
@@ -408,6 +429,13 @@ class RedAlimentaViewModel(
         }
     }
 
+    fun deleteFoodRequest(id: Int) {
+        launchRequest("Solicitud y entregas pendientes relacionadas eliminadas.") {
+            api.deleteRequest(id)
+            loadData()
+        }
+    }
+
     fun registerDelivery(request: FoodRequest, deliveredBy: String, items: List<DeliveredProduct>) {
         launchRequest("Entrega registrada; queda pendiente la confirmación del beneficiario.") {
             api.createDelivery(
@@ -417,6 +445,13 @@ class RedAlimentaViewModel(
                     entregadaPor = deliveredBy,
                 ),
             )
+            loadData()
+        }
+    }
+
+    fun deleteDelivery(id: Int) {
+        launchRequest("Entrega pendiente eliminada.") {
+            api.deleteDelivery(id)
             loadData()
         }
     }

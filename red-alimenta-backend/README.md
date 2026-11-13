@@ -79,7 +79,7 @@ El script guarda la contraseña con el hash scrypt usado por el backend. No esta
 
 ## Superadministrador y eliminación permanente
 
-`SUPER_ADMIN` tiene las mismas funciones operativas que `ADMIN_GENERAL`, además de poder eliminar permanentemente usuarios. La promoción no crea otra cuenta ni cambia contraseñas: después de hacer una copia de seguridad y aplicar la migración pendiente, configura temporalmente `SUPER_ADMIN_EMAIL` con el correo de un administrador general activo ya existente y ejecuta:
+`SUPER_ADMIN` tiene las mismas funciones operativas que `ADMIN_GENERAL`, además de poder eliminar permanentemente usuarios, bancos, productos, donaciones, solicitudes y entregas. Cada eliminación está protegida por autorización de rol y conserva el historial de auditoría con una instantánea del registro eliminado. Las entregas confirmadas y los cambios de inventario que no se puedan cuadrar bloquean la operación. La promoción no crea otra cuenta ni cambia contraseñas: después de hacer una copia de seguridad y aplicar la migración pendiente, configura temporalmente `SUPER_ADMIN_EMAIL` con el correo de un administrador general activo ya existente y ejecuta:
 
 ```powershell
 npm.cmd run prisma:migrate

@@ -123,6 +123,10 @@ data class AdminUserDeleteResponse(
     val documentCleanupWarnings: Int,
 )
 
+data class DeleteResponse(
+    val deleted: Boolean,
+)
+
 fun isAdminRole(role: String): Boolean = role == "ADMIN_GENERAL" || role == "SUPER_ADMIN"
 
 fun isSuperAdmin(role: String): Boolean = role == "SUPER_ADMIN"

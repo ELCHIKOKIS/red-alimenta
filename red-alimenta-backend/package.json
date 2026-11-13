@@ -15,7 +15,7 @@
     "superadmin:create": "tsx src/scripts/bootstrapSuperAdmin.ts",
     "admin:promote-super": "tsx src/scripts/promoteSuperAdmin.ts",
     "test": "npm run build && npm run test:unit",
-    "test:unit": "tsx --test src/lib/auth.test.ts src/lib/roles.test.ts src/realtime/realtime.test.ts src/controllers/productsController.test.ts"
+    "test:unit": "tsx --test src/lib/auth.test.ts src/lib/roles.test.ts src/realtime/realtime.test.ts src/controllers/productsController.test.ts src/controllers/superAdminDeletionController.test.ts"
   },
   "keywords": [],
   "author": "",

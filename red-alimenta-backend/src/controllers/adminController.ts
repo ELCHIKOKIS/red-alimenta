@@ -15,6 +15,7 @@ import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
 import { getDocumentsDirectory } from './registrationDocumentsController';
 import { ADMIN_ROLES, isSuperAdmin } from '../lib/roles';
+import { preserveUserAuditActor } from './superAdminDeletionController';
 import {
   disconnectRealtimeUser,
   publishRealtimeChange,
@@ -203,11 +204,11 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
 export async function deleteUser(req: Request, res: Response, next: NextFunction) {
   try {
     if (!req.auth || !isSuperAdmin(req.auth.role)) {
-      throw new AppError('Only a super administrator can permanently delete users', 403);
+      throw new AppError('Solo SUPER_ADMIN puede eliminar usuarios permanentemente.', 403);
     }
     const userId = parsePositiveInteger(req.params.id, 'user id');
     if (userId === req.auth.userId) {
-      throw new AppError('You cannot permanently delete your own account', 409);
+      throw new AppError('No puedes eliminar permanentemente tu propia cuenta.', 409);
     }
 
     const storedDocumentNames = await prisma.$transaction(async (tx) => {
@@ -218,7 +219,7 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
           beneficiario: { select: { id: true, nombreOrganizacion: true } },
         },
       });
-      if (!user) throw new AppError('User not found', 404);
+      if (!user) throw new AppError('No se encontró el usuario.', 404);
       if (user.donante) {
         const donorReferences = [user.nombre, user.email, user.donante.organizacion]
           .filter((reference): reference is string => Boolean(reference));
@@ -230,7 +231,7 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
         });
         if (legacyDonations > 0) {
           throw new AppError(
-            'This account may have legacy donations without a linked donor profile; reconcile those records before deletion',
+            'La cuenta tiene donaciones antiguas sin un donante vinculado; revísalas antes de eliminarla.',
             409,
           );
         }
@@ -249,7 +250,7 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
         });
         if (legacyDeliveries > 0) {
           throw new AppError(
-            'This account may have legacy deliveries without a linked beneficiary profile; reconcile those records before deletion',
+            'La cuenta tiene entregas antiguas sin un beneficiario vinculado; revísalas antes de eliminarla.',
             409,
           );
         }
@@ -259,7 +260,7 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
           where: { rol: RolUsuario.SUPER_ADMIN, estado: EstadoCuenta.ACTIVA },
         });
         if (user.estado === EstadoCuenta.ACTIVA && activeSuperAdmins <= 1) {
-          throw new AppError('The last active super administrator cannot be deleted', 409);
+          throw new AppError('No se puede eliminar al último SUPER_ADMIN activo.', 409);
         }
       }
 
@@ -293,33 +294,66 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
       const deliveries = deliveryConditions.length
         ? await tx.entrega.findMany({
           where: { OR: deliveryConditions },
-          include: { detalles: { include: { movimiento: true } } },
+          include: {
+            detalles: {
+              include: {
+                movimiento: true,
+                detalleSolicitud: {
+                  select: { solicitudId: true, productoId: true, cantidadAprobada: true },
+                },
+              },
+            },
+          },
         })
         : [];
 
       if (deliveries.some((delivery) => delivery.estado === EstadoEntrega.CONFIRMADA)) {
         throw new AppError(
-          'This account has confirmed deliveries that cannot be removed without falsifying completed transactions',
+          'La cuenta tiene entregas confirmadas; eliminarlas alteraría transacciones ya completadas.',
           409,
         );
       }
       const requestIdSet = new Set(requestIds);
+      const requestDetails = new Map(
+        requests.flatMap((request) => request.detalles.map((detail) => [detail.id, detail] as const)),
+      );
+      const deliveredByDetail = new Map<number, number>();
       for (const delivery of deliveries) {
         if (
           !delivery.solicitudId
           || !requestIdSet.has(delivery.solicitudId)
+          || !delivery.bancoId
           || delivery.detalles.length === 0
           || delivery.detalles.some((detail) => (
             !detail.movimiento
             || detail.movimiento.tipo !== TipoMovimientoInventario.ENTREGA_REGISTRADA
             || detail.movimiento.cantidad !== detail.cantidad
+            || detail.movimiento.bancoId !== delivery.bancoId
+            || detail.movimiento.productoId !== detail.productoId
+            || detail.detalleSolicitud.solicitudId !== delivery.solicitudId
+            || detail.detalleSolicitud.productoId !== detail.productoId
+            || !requestDetails.has(detail.detalleSolicitudId)
           ))
         ) {
           throw new AppError(
-            'This account has an untracked or inconsistent delivery; reconcile inventory before deleting it',
+            'La cuenta tiene una entrega sin seguimiento o inconsistente; revisa el inventario antes de eliminarla.',
             409,
           );
         }
+        for (const detail of delivery.detalles) {
+          deliveredByDetail.set(
+            detail.detalleSolicitudId,
+            (deliveredByDetail.get(detail.detalleSolicitudId) ?? 0) + detail.cantidad,
+          );
+        }
+      }
+      if (Array.from(requestDetails.values()).some((detail) => (
+        (deliveredByDetail.get(detail.id) ?? 0) > detail.cantidadAprobada
+      ))) {
+        throw new AppError(
+          'Las cantidades entregadas superan las aprobadas; revisa el inventario antes de eliminar la cuenta.',
+          409,
+        );
       }
 
       const inventoryChanges = new Map<string, {
@@ -340,13 +374,15 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
 
       for (const request of requests) {
         for (const detail of request.detalles) {
-          inventoryChange(request.bancoId, detail.productoId).stockReservado -= detail.cantidadAprobada;
+          if (detail.cantidadAprobada > 0) {
+            inventoryChange(request.bancoId, detail.productoId).stockReservado -= detail.cantidadAprobada;
+          }
         }
       }
       const deliveryIds = deliveries.map((delivery) => delivery.id);
       for (const delivery of deliveries) {
         if (!delivery.bancoId) {
-          throw new AppError('Delivery has no bank; reconcile inventory before deleting this account', 409);
+          throw new AppError('Una entrega no tiene banco asociado; revisa el inventario antes de eliminar la cuenta.', 409);
         }
         for (const detail of delivery.detalles) {
           const change = inventoryChange(delivery.bancoId, detail.productoId);
@@ -370,7 +406,19 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
             < inventory.stockReservado + change.stockReservado
         ) {
           throw new AppError(
-            'Inventory cannot be reconciled safely; adjust stock before deleting this account',
+            'No se puede cuadrar el inventario de forma segura; ajusta las existencias antes de eliminar la cuenta.',
+            409,
+          );
+        }
+        if (deliveries.some((delivery) => (
+          delivery.bancoId === change.bancoId
+          && delivery.detalles.some((detail) => (
+            detail.productoId === change.productoId
+            && detail.movimiento?.inventarioId !== inventory.id
+          ))
+        ))) {
+          throw new AppError(
+            'Una entrega apunta a otro registro de inventario; revísala antes de eliminar la cuenta.',
             409,
           );
         }
@@ -409,7 +457,7 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
             || movements[0].cantidad !== donation.cantidad
           ) {
             throw new AppError(
-              'An accepted donation has no reliable inventory movement; reconcile stock before deleting this account',
+              'Una donación aceptada no tiene un movimiento de inventario verificable; revísala antes de eliminar la cuenta.',
               409,
             );
           }
@@ -423,10 +471,11 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
           });
           if (
             !inventory
+            || movements[0].inventarioId !== inventory.id
             || inventory.stockActual - donation.cantidad < inventory.stockReservado
           ) {
             throw new AppError(
-              'Accepted donation stock has been reserved or consumed; adjust inventory before deleting this account',
+              'Las existencias de una donación aceptada están reservadas o consumidas; ajusta el inventario antes de eliminar la cuenta.',
               409,
             );
           }
@@ -436,7 +485,7 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
           });
         } else if (movements.length > 0) {
           throw new AppError(
-            'Donation inventory history is inconsistent; reconcile stock before deleting this account',
+            'El historial de inventario de una donación no coincide; revísalo antes de eliminar la cuenta.',
             409,
           );
         }
@@ -468,15 +517,24 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
         });
         await tx.solicitudRegistro.deleteMany({ where: { id: { in: registrationIds } } });
       }
-      await tx.auditoria.deleteMany({ where: { usuarioId: userId } });
+      await preserveUserAuditActor(tx, user);
       await tx.membresiaBanco.deleteMany({ where: { usuarioId: userId } });
       if (user.donante) await tx.donante.delete({ where: { id: user.donante.id } });
       if (user.beneficiario) {
         await tx.beneficiario.delete({ where: { id: user.beneficiario.id } });
       }
+      await tx.auditoria.create({
+        data: {
+          usuarioId: req.auth!.userId,
+          accion: 'USUARIO_ELIMINADO',
+          entidad: 'Usuario',
+          entidadId: String(user.id),
+          detalles: { nombre: user.nombre, email: user.email, rol: user.rol },
+        },
+      });
       await tx.usuario.delete({ where: { id: userId } });
       return documents.map((document) => document.nombreAlmacenado);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 });
 
     let documentCleanupWarnings = 0;
     for (const storedName of storedDocumentNames) {
@@ -502,7 +560,7 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
     res.json({ deleted: true, documentCleanupWarnings });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-      return next(new AppError('User not found', 404));
+      return next(new AppError('No se encontró el usuario.', 404));
     }
     next(error);
   }

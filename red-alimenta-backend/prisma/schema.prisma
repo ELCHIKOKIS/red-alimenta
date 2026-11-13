@@ -256,8 +256,10 @@ model Producto {
   nombre            String                 @db.VarChar(191)
   categoria         String                 @db.VarChar(191)
   unidad            String                 @db.VarChar(191)
+  imagenUrl         String?                @map("imagen_url") @db.VarChar(255)
   stock_actual      Int                    @default(0)
   activo            Boolean                @default(true)
+  imagen            ImagenProducto?
   donaciones        Donacion[]
   entregas          Entrega[]
   inventarios       Inventario[]
@@ -267,6 +269,17 @@ model Producto {
 
   @@unique([nombre], map: "productos_nombre_key")
   @@map("productos")
+}
+
+model ImagenProducto {
+  id            Int      @id @default(autoincrement())
+  productoId    Int      @unique @map("producto_id")
+  tipoMime      String   @map("tipo_mime") @db.VarChar(50)
+  contenido     Bytes    @db.LongBlob
+  actualizadaEn DateTime @updatedAt @map("actualizada_en") @db.DateTime(3)
+  producto      Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+
+  @@map("imagenes_productos")
 }
 
 model Inventario {

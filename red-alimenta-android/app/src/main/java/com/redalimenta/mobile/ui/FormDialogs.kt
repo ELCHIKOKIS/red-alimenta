@@ -1,10 +1,16 @@
 package com.redalimenta.mobile.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -277,19 +283,58 @@ fun AdminUserEditDialog(
 fun ProductFormDialog(
     product: Product?,
     onDismiss: () -> Unit,
-    onSave: (ProductPayload) -> Unit,
+    onSave: (ProductPayload, Uri?, Boolean) -> Unit,
 ) {
     var name by remember(product) { mutableStateOf(product?.nombre.orEmpty()) }
     var category by remember(product) { mutableStateOf(product?.categoria.orEmpty()) }
     var unit by remember(product) { mutableStateOf(product?.unidad.orEmpty()) }
     var active by remember(product) { mutableStateOf(product?.activo ?: true) }
+    var selectedImage by remember(product) { mutableStateOf<Uri?>(null) }
+    var removeImage by remember(product) { mutableStateOf(false) }
     var validationError by remember { mutableStateOf<String?>(null) }
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            selectedImage = uri
+            removeImage = false
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (product == null) "Nuevo producto" else "Editar producto") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ProductImage(
+                    category = category,
+                    imageUrl = product?.imagenUrl.takeUnless { removeImage },
+                    localImage = selectedImage,
+                    contentDescription = "Vista previa de $name",
+                    modifier = Modifier.fillMaxWidth().height(132.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = {
+                        imagePicker.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
+                    }) {
+                        Text(if (selectedImage == null && product?.imagenUrl.isNullOrBlank()) "Elegir foto" else "Cambiar foto")
+                    }
+                    if (selectedImage != null || !product?.imagenUrl.isNullOrBlank()) {
+                        TextButton(onClick = {
+                            selectedImage = null
+                            removeImage = true
+                        }) {
+                            Text("Usar imagen de categoría")
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -331,7 +376,11 @@ fun ProductFormDialog(
                     else -> null
                 }
                 if (validationError == null) {
-                    onSave(ProductPayload(name.trim(), category.trim(), unit.trim(), active))
+                    onSave(
+                        ProductPayload(name.trim(), category.trim(), unit.trim(), active),
+                        selectedImage,
+                        removeImage,
+                    )
                 }
             }) {
                 Text("Guardar")
@@ -428,6 +477,14 @@ fun DonationFormDialog(
                             activeProducts.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text("${option.nombre} · ${option.unidad}") },
+                                    leadingIcon = {
+                                        ProductImage(
+                                            category = option.categoria,
+                                            imageUrl = option.imagenUrl,
+                                            contentDescription = option.nombre,
+                                            modifier = Modifier.width(40.dp).height(40.dp),
+                                        )
+                                    },
                                     onClick = { product = option; productMenu = false },
                                 )
                             }
@@ -498,7 +555,10 @@ fun RequestFormDialog(
         onDismissRequest = onDismiss,
         title = { Text("Solicitar alimentos") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (products.isEmpty()) {
                     Text("No hay alimentos publicados con disponibilidad en este banco.")
                 } else {
@@ -512,8 +572,15 @@ fun RequestFormDialog(
                                         else selectedIds - product.id
                                     },
                                 )
+                                ProductImage(
+                                    category = product.categoria,
+                                    imageUrl = product.imagenUrl,
+                                    contentDescription = product.nombre,
+                                    modifier = Modifier.width(48.dp).height(48.dp),
+                                )
                                 Text(
                                     "${product.nombre} · ${product.cantidadDisponible} ${product.unidad}",
+                                    modifier = Modifier.weight(1f).padding(start = 8.dp),
                                 )
                             }
                             if (product.id in selectedIds) {
@@ -572,7 +639,10 @@ fun RequestApprovalDialog(
         onDismissRequest = onDismiss,
         title = { Text("Aprobar cantidades · solicitud #${request.id}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 request.detalles.forEach { detail ->
                     OutlinedTextField(
                         value = quantities[detail.id].orEmpty(),

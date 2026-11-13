@@ -8,7 +8,8 @@ import {
 } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
-import { isAdminRole } from '../lib/roles';
+import { ADMIN_ROLES, isAdminRole } from '../lib/roles';
+import { publishRealtimeChange } from '../realtime/RealtimeHub';
 
 interface DeliveryItem {
   detalleSolicitudId: number;
@@ -112,7 +113,7 @@ export async function createDelivery(req: Request, res: Response, next: NextFunc
       const request = await tx.solicitudAlimentos.findUnique({
         where: { id: solicitudId },
         include: {
-          beneficiario: { select: { id: true, nombreOrganizacion: true } },
+          beneficiario: { select: { id: true, nombreOrganizacion: true, usuarioId: true } },
           detalles: true,
         },
       });
@@ -241,7 +242,7 @@ export async function createDelivery(req: Request, res: Response, next: NextFunc
         },
       });
 
-      return tx.entrega.findUnique({
+      const delivery = await tx.entrega.findUniqueOrThrow({
         where: { id: created.id },
         include: {
           banco: { select: { id: true, nombre: true } },
@@ -249,8 +250,40 @@ export async function createDelivery(req: Request, res: Response, next: NextFunc
           detalles: { include: { producto: true } },
         },
       });
+      return {
+        delivery,
+        bankId: request.bancoId,
+        beneficiaryUserId: request.beneficiario.usuarioId,
+        requestCompleted: completedDetails,
+      };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    res.status(201).json(delivery);
+    publishRealtimeChange(
+      {
+        userIds: [delivery.beneficiaryUserId],
+        bankIds: [delivery.bankId],
+        roles: ADMIN_ROLES,
+      },
+      {
+        type: 'delivery.created',
+        resource: 'deliveries',
+        resourceId: delivery.delivery.id,
+      },
+    );
+    if (delivery.requestCompleted) {
+      publishRealtimeChange(
+        {
+          userIds: [delivery.beneficiaryUserId],
+          bankIds: [delivery.bankId],
+          roles: ADMIN_ROLES,
+        },
+        {
+          type: 'request.updated',
+          resource: 'requests',
+          resourceId: solicitudId,
+        },
+      );
+    }
+    res.status(201).json(delivery.delivery);
   } catch (error) {
     next(error);
   }
@@ -267,11 +300,17 @@ export async function confirmDelivery(req: Request, res: Response, next: NextFun
     const updated = await prisma.$transaction(async (tx) => {
       const delivery = await tx.entrega.findUnique({
         where: { id: deliveryId },
-        select: { id: true, beneficiarioId: true, estado: true, bancoId: true },
+        select: {
+          id: true,
+          beneficiarioId: true,
+          estado: true,
+          bancoId: true,
+          beneficiario: { select: { usuarioId: true } },
+        },
       });
       const beneficiary = await tx.beneficiario.findUnique({
         where: { usuarioId: req.auth!.userId },
-        select: { id: true },
+        select: { id: true, usuarioId: true },
       });
       if (!delivery || !beneficiary || delivery.beneficiarioId !== beneficiary.id) {
         throw new AppError('Delivery not found', 404);
@@ -301,9 +340,25 @@ export async function confirmDelivery(req: Request, res: Response, next: NextFun
           entidadId: String(delivery.id),
         },
       });
-      return tx.entrega.findUnique({ where: { id: delivery.id } });
+      return {
+        delivery: await tx.entrega.findUniqueOrThrow({ where: { id: delivery.id } }),
+        bankId: delivery.bancoId,
+        beneficiaryUserId: beneficiary.usuarioId,
+      };
     });
-    res.json(updated);
+    publishRealtimeChange(
+      {
+        userIds: [updated.beneficiaryUserId],
+        bankIds: updated.bankId === null ? [] : [updated.bankId],
+        roles: ADMIN_ROLES,
+      },
+      {
+        type: 'delivery.updated',
+        resource: 'deliveries',
+        resourceId: deliveryId,
+      },
+    );
+    res.json(updated.delivery);
   } catch (error) {
     next(error);
   }

@@ -14,18 +14,16 @@ Cada proyecto tiene su propio README con detalles y comandos específicos:
 
 ## Ejecutar localmente en Windows
 
-### 1. Iniciar MySQL
+### 1. Preparar MySQL
 
-Haz doble clic en [`red-alimenta-backend/iniciar-base-datos.bat`](./red-alimenta-backend/iniciar-base-datos.bat) y deja abierta su ventana mientras utilizas la aplicación.
-
-Este script inicia MySQL únicamente; no inicia la API ni modifica el esquema de Prisma.
+Inicia el servicio MySQL del entorno local y configura `DATABASE_URL` en el archivo `.env` del backend para usar una base de desarrollo, no la base de producción.
 
 ### 2. Iniciar el backend
 
-Abre otra terminal PowerShell y ejecuta:
+Desde la raíz del repositorio, abre PowerShell y ejecuta:
 
 ```powershell
-cd C:\Users\juanf\U\red-alimenta\red-alimenta-backend
+Set-Location .\red-alimenta-backend
 npm.cmd run dev
 ```
 

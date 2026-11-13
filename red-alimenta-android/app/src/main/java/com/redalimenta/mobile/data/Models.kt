@@ -79,6 +79,15 @@ data class BankUserPayload(
     val nivel: String = "OPERADOR",
 )
 
+data class InventoryAddPayload(
+    val productoId: Int,
+    val publicado: Boolean = false,
+)
+
+data class InventorySettingsPayload(
+    val publicado: Boolean,
+)
+
 data class AdminUser(
     val id: Int,
     val nombre: String,
@@ -202,6 +211,7 @@ data class Product(
     val categoria: String,
     val unidad: String,
     val activo: Boolean,
+    val imagenUrl: String? = null,
 )
 
 data class InventoryItem(
@@ -375,6 +385,10 @@ data class DonationPayload(
     val observaciones: String? = null,
 )
 
+data class DonationReviewPayload(
+    val decision: String,
+)
+
 data class CreateRequestPayload(
     val bancoId: Int,
     val items: List<RequestedProduct>,
@@ -430,4 +444,5 @@ data class AvailableProduct(
     val categoria: String,
     val unidad: String,
     val cantidadDisponible: Int,
+    val imagenUrl: String? = null,
 )

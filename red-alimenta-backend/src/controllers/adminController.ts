@@ -15,6 +15,10 @@ import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
 import { getDocumentsDirectory } from './registrationDocumentsController';
 import { ADMIN_ROLES, isSuperAdmin } from '../lib/roles';
+import {
+  disconnectRealtimeUser,
+  publishRealtimeChange,
+} from '../realtime/RealtimeHub';
 
 function requiredText(value: unknown, field: string, maxLength: number): string {
   if (typeof value !== 'string' || value.trim() === '' || value.trim().length > maxLength) {
@@ -173,6 +177,17 @@ export async function updateUser(req: Request, res: Response, next: NextFunction
       });
       return user;
     });
+    publishRealtimeChange(
+      { userIds: [updated.id], roles: ADMIN_ROLES },
+      {
+        type: 'user.updated',
+        resource: 'users',
+        resourceId: updated.id,
+      },
+    );
+    if (updated.estado === EstadoCuenta.SUSPENDIDA) {
+      disconnectRealtimeUser(updated.id);
+    }
     res.json(updated);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -479,6 +494,11 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
         }
       }
     }
+    publishRealtimeChange(
+      { roles: ADMIN_ROLES },
+      { type: 'user.deleted', resource: 'users', resourceId: userId },
+    );
+    disconnectRealtimeUser(userId);
     res.json({ deleted: true, documentCleanupWarnings });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
@@ -585,6 +605,19 @@ export async function reviewRegistration(req: Request, res: Response, next: Next
         },
       });
     });
+    if (reviewed) {
+      publishRealtimeChange(
+        {
+          userIds: [reviewed.solicitante.id],
+          roles: ADMIN_ROLES,
+        },
+        {
+          type: 'registration.updated',
+          resource: 'registrations',
+          resourceId: requestId,
+        },
+      );
+    }
     res.json(reviewed);
   } catch (error) {
     next(error);

@@ -8,6 +8,8 @@ import {
 } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
+import { coverageRoom, publishRealtimeChange } from '../realtime/RealtimeHub';
+import { ADMIN_ROLES } from '../lib/roles';
 
 function normalizeDonationPayload(payload: unknown) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -122,6 +124,14 @@ export async function createDonation(req: Request, res: Response, next: NextFunc
       return donation;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
+    publishRealtimeChange(
+      { userIds: [req.auth.userId], bankIds: [result.bancoId], roles: ADMIN_ROLES },
+      {
+        type: 'donation.created',
+        resource: 'donations',
+        resourceId: result.id,
+      },
+    );
     res.status(201).json({ donation: result, inventoryUpdated: false });
   } catch (error) {
     next(error);
@@ -140,7 +150,15 @@ export async function reviewDonation(req: Request, res: Response, next: NextFunc
     const result = await prisma.$transaction(async (tx) => {
       const donation = await tx.donacion.findUnique({
         where: { id: donationId },
-        include: { producto: true },
+        include: {
+          producto: true,
+          donante: { select: { usuarioId: true } },
+          banco: {
+            select: {
+              coberturas: { select: { departamento: true, municipio: true } },
+            },
+          },
+        },
       });
       if (!donation) throw new AppError('Donation not found', 404);
       if (
@@ -206,13 +224,47 @@ export async function reviewDonation(req: Request, res: Response, next: NextFunc
         },
       });
 
-      return tx.donacion.findUnique({
+      const updatedDonation = await tx.donacion.findUniqueOrThrow({
         where: { id: donation.id },
         include: { producto: true, banco: { select: { id: true, nombre: true } } },
       });
+      return {
+        donation: updatedDonation,
+        donorUserId: donation.donante?.usuarioId,
+        coverageRooms: donation.banco.coberturas.map((coverage) => (
+          coverageRoom(coverage.departamento, coverage.municipio)
+        )),
+        bankId: donation.bancoId,
+      };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    res.json(result);
+    publishRealtimeChange(
+      {
+        userIds: result.donorUserId ? [result.donorUserId] : [],
+        bankIds: [result.bankId],
+        roles: ADMIN_ROLES,
+      },
+      {
+        type: 'donation.updated',
+        resource: 'donations',
+        resourceId: donationId,
+      },
+    );
+    if (body.decision === 'ACEPTAR') {
+      publishRealtimeChange(
+        {
+          bankIds: [result.bankId],
+          roles: ADMIN_ROLES,
+          coverageRooms: result.coverageRooms,
+        },
+        {
+          type: 'inventory.updated',
+          resource: 'availability',
+          resourceId: result.bankId,
+        },
+      );
+    }
+    res.json(result.donation);
   } catch (error) {
     next(error);
   }

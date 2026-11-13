@@ -5,21 +5,42 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Assignment
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -29,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -37,17 +59,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.redalimenta.mobile.data.AppTab
 import com.redalimenta.mobile.data.AppUiState
 import com.redalimenta.mobile.data.AdminUser
@@ -65,9 +92,14 @@ import com.redalimenta.mobile.data.FoodRequest
 import com.redalimenta.mobile.data.InventoryItem
 import com.redalimenta.mobile.data.Product
 import com.redalimenta.mobile.data.RedAlimentaViewModel
+import com.redalimenta.mobile.data.prepareProductImageUpload
 import com.redalimenta.mobile.data.RegistrationRequest
 import com.redalimenta.mobile.data.User
 import com.redalimenta.mobile.data.tabsFor
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,44 +127,65 @@ fun RedAlimentaApp(viewModel: RedAlimentaViewModel) {
         }
     }
 
-    MaterialTheme {
-        val user = state.user
-        when {
-            user == null -> AuthScreen(
-                isLoading = state.isLoading,
-                error = state.error,
-                notice = state.notice,
-                onSignIn = viewModel::signIn,
-                onRegister = viewModel::register,
-                onClearFeedback = viewModel::clearFeedback,
-            )
-            user.rol == "BENEFICIARIO" && user.estado != "ACTIVA" -> PendingRegistrationScreen(
-                user = user,
-                isLoading = state.isLoading,
-                error = state.error,
-                onRefresh = viewModel::refresh,
-                onUploadDocument = { documentPicker.launch("*/*") },
-                onEditProfile = { showPendingProfileForm = true },
-                onSignOut = viewModel::signOut,
-            )
-            user.estado != "ACTIVA" -> InactiveAccountScreen(
-                user = user,
-                isLoading = state.isLoading,
-                error = state.error,
-                onRefresh = viewModel::refresh,
-                onSignOut = viewModel::signOut,
-            )
-            else -> MainDashboard(viewModel, state)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> viewModel.onAppForeground()
+                Lifecycle.Event.ON_STOP -> viewModel.onAppBackground()
+                else -> Unit
+            }
         }
-        if (showPendingProfileForm && user != null) {
-            ProfileEditDialog(
-                user = user,
-                onDismiss = { showPendingProfileForm = false },
-                onSave = {
-                    viewModel.updateProfile(it)
-                    showPendingProfileForm = false
-                },
-            )
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.onAppBackground()
+        }
+    }
+
+    RedAlimentaTheme {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            val user = state.user
+            when {
+                user == null -> AuthScreen(
+                    isLoading = state.isLoading,
+                    error = state.error,
+                    notice = state.notice,
+                    onSignIn = viewModel::signIn,
+                    onRegister = viewModel::register,
+                    onClearFeedback = viewModel::clearFeedback,
+                )
+                user.rol == "BENEFICIARIO" && user.estado != "ACTIVA" -> PendingRegistrationScreen(
+                    user = user,
+                    isLoading = state.isLoading,
+                    error = state.error,
+                    onRefresh = viewModel::refresh,
+                    onUploadDocument = { documentPicker.launch("*/*") },
+                    onEditProfile = { showPendingProfileForm = true },
+                    onSignOut = viewModel::signOut,
+                )
+                user.estado != "ACTIVA" -> InactiveAccountScreen(
+                    user = user,
+                    isLoading = state.isLoading,
+                    error = state.error,
+                    onRefresh = viewModel::refresh,
+                    onSignOut = viewModel::signOut,
+                )
+                else -> MainDashboard(viewModel, state)
+            }
+            if (showPendingProfileForm && user != null) {
+                ProfileEditDialog(
+                    user = user,
+                    onDismiss = { showPendingProfileForm = false },
+                    onSave = {
+                        viewModel.updateProfile(it)
+                        showPendingProfileForm = false
+                    },
+                )
+            }
         }
     }
 }
@@ -141,6 +194,8 @@ fun RedAlimentaApp(viewModel: RedAlimentaViewModel) {
 @Composable
 private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
     val user = state.user ?: return
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var showProductForm by remember { mutableStateOf(false) }
     var showBankForm by remember { mutableStateOf(false) }
     var showDonationForm by remember { mutableStateOf(false) }
@@ -167,9 +222,57 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text("RED-ALIMENTA", fontWeight = FontWeight.Bold)
-                        Text("${user.nombre} · ${displayRoleName(user.rol)}", style = MaterialTheme.typography.labelMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                        ) {
+                            Text(
+                                user.nombre.trim().firstOrNull()?.uppercase() ?: "R",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        Column(modifier = Modifier.padding(start = 10.dp)) {
+                            Text("RED-ALIMENTA", fontWeight = FontWeight.Bold)
+                            Text(
+                                "${user.nombre} · ${displayRoleName(user.rol)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                            )
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = if (state.isRealtimeConnected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = if (state.isRealtimeConnected) {
+                                            Icons.Default.Wifi
+                                        } else {
+                                            Icons.Default.WifiOff
+                                        },
+                                        contentDescription = null,
+                                        modifier = Modifier.width(14.dp).height(14.dp),
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Text(
+                                        if (state.isRealtimeConnected) "En vivo" else "Sin conexión",
+                                        modifier = Modifier.padding(start = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 actions = {
@@ -177,7 +280,7 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                         Icon(Icons.Default.Refresh, contentDescription = "Actualizar")
                     }
                     IconButton(onClick = viewModel::signOut) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "Cerrar sesión")
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Cerrar sesión")
                     }
                 },
             )
@@ -190,7 +293,7 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
                         NavigationBarItem(
                             selected = state.selectedTab == tab,
                             onClick = { viewModel.selectTab(tab) },
-                            icon = { Text(tab.label.take(1)) },
+                            icon = { Icon(tabIcon(tab), contentDescription = null) },
                             label = { Text(tab.label) },
                         )
                     }
@@ -199,7 +302,11 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
         },
     ) { innerPadding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .animateContentSize()
+                .padding(innerPadding),
         ) {
             val tabs = tabsFor(user.rol)
             if (tabs.size > 4) {
@@ -304,9 +411,25 @@ private fun MainDashboard(viewModel: RedAlimentaViewModel, state: AppUiState) {
         ProductFormDialog(
             product = productBeingEdited,
             onDismiss = { showProductForm = false },
-            onSave = {
-                viewModel.saveProduct(productBeingEdited?.id, it)
+            onSave = { payload, selectedImage, removeImage ->
+                val productId = productBeingEdited?.id
                 showProductForm = false
+                coroutineScope.launch {
+                    try {
+                        val imageUpload = selectedImage?.let { uri ->
+                            withContext(Dispatchers.IO) {
+                                prepareProductImageUpload(context, uri)
+                            }
+                        }
+                        viewModel.saveProduct(productId, payload, imageUpload, removeImage)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        viewModel.reportError(
+                            error.message ?: "No se pudo preparar la fotografía del producto.",
+                        )
+                    }
+                }
             },
         )
     }
@@ -436,6 +559,32 @@ private fun BankSelector(banks: List<Bank>, selectedBankId: Int?, onSelect: (Int
 }
 
 @Composable
+private fun tabIcon(tab: AppTab) = when (tab) {
+    AppTab.PRODUCTS, AppTab.INVENTORY, AppTab.AVAILABILITY -> Icons.Default.Inventory
+    AppTab.BANKS -> Icons.Default.AccountBalance
+    AppTab.DONATIONS -> Icons.Default.Favorite
+    AppTab.REQUESTS -> Icons.AutoMirrored.Filled.Assignment
+    AppTab.DELIVERIES -> Icons.Default.LocalShipping
+    AppTab.APPROVALS -> Icons.Default.VerifiedUser
+    AppTab.REPORTS -> Icons.Default.Assessment
+    AppTab.USERS, AppTab.BANK_DONORS, AppTab.BANK_BENEFICIARIES -> Icons.Default.People
+    AppTab.BANK_HISTORY -> Icons.Default.History
+    AppTab.PROFILE -> Icons.Default.Person
+}
+
+@Composable
+private fun Card(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    ElevatedCard(
+        modifier = modifier,
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp),
+        content = content,
+    )
+}
+
+@Composable
 private fun ProductList(
     products: List<Product>,
     onAdd: () -> Unit,
@@ -472,18 +621,38 @@ private fun ProductList(
             ) {
                 items(visible, key = { it.id }) { product ->
                     Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth().padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(product.nombre, fontWeight = FontWeight.SemiBold)
-                                Text("${product.categoria} · ${product.unidad}")
-                                Text(if (product.activo) "Catálogo activo" else "Desactivado; historial conservado")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                ProductImage(
+                                    category = product.categoria,
+                                    imageUrl = product.imagenUrl,
+                                    contentDescription = product.nombre,
+                                    modifier = Modifier.width(72.dp).height(72.dp),
+                                )
+                                Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                                    Text(product.nombre, fontWeight = FontWeight.SemiBold)
+                                    Text("${product.categoria} · ${product.unidad}")
+                                    Text(
+                                        if (product.activo) "Catálogo activo"
+                                        else "Desactivado; historial conservado",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
-                            TextButton(onClick = { onEdit(product) }) { Text("Editar") }
-                            if (product.activo) {
-                                TextButton(onClick = { pendingDeactivation = product }) { Text("Desactivar") }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                TextButton(onClick = { onEdit(product) }) { Text("Editar") }
+                                if (product.activo) {
+                                    TextButton(onClick = { pendingDeactivation = product }) {
+                                        Text("Desactivar")
+                                    }
+                                }
                             }
                         }
                         pendingDeactivation?.let { product ->
@@ -693,6 +862,35 @@ private fun statusLabel(status: String): String = when (status) {
     else -> status
 }
 
+private fun donationStatusLabel(status: String): String = when (status) {
+    "ACEPTADA" -> "Aceptada"
+    "PENDIENTE" -> "Pendiente"
+    "RECHAZADA" -> "Rechazada"
+    else -> status
+}
+
+@Composable
+private fun DonationStatusChip(status: String) {
+    val backgroundColor = when (status) {
+        "ACEPTADA" -> MaterialTheme.colorScheme.primaryContainer
+        "RECHAZADA" -> MaterialTheme.colorScheme.errorContainer
+        else -> MaterialTheme.colorScheme.secondaryContainer
+    }
+    val textColor = when (status) {
+        "RECHAZADA" -> MaterialTheme.colorScheme.onErrorContainer
+        "ACEPTADA" -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    Surface(shape = MaterialTheme.shapes.small, color = backgroundColor) {
+        Text(
+            donationStatusLabel(status),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = textColor,
+        )
+    }
+}
+
 @Composable
 private fun BankDonorList(donors: List<BankDonor>) {
     if (donors.isEmpty()) {
@@ -778,12 +976,22 @@ private fun InventoryList(
         ) {
             items(inventory, key = { it.id }) { item ->
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(item.producto.nombre, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Disponible: ${item.cantidadDisponible} ${item.producto.unidad} " +
-                                "(reservado: ${item.stockReservado})",
-                        )
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ProductImage(
+                                category = item.producto.categoria,
+                                imageUrl = item.producto.imagenUrl,
+                                contentDescription = item.producto.nombre,
+                                modifier = Modifier.width(72.dp).height(72.dp),
+                            )
+                            Column(modifier = Modifier.padding(start = 12.dp)) {
+                                Text(item.producto.nombre, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Disponible: ${item.cantidadDisponible} ${item.producto.unidad} " +
+                                        "(reservado: ${item.stockReservado})",
+                                )
+                            }
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Publicar disponibilidad", modifier = Modifier.weight(1f))
                             Switch(
@@ -818,29 +1026,80 @@ private fun DonationList(
     onReview: (Int, Boolean) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text("Donaciones", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "Alimentos que la comunidad está compartiendo.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         if (canRegister) {
-            Button(onClick = onAdd, modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+            Button(onClick = onAdd, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Icon(Icons.Default.Add, contentDescription = null)
-                Text("  Registrar donación")
+                Text("Registrar donación", modifier = Modifier.padding(start = 8.dp))
             }
         }
         if (donations.isEmpty()) EmptyState("Aún no hay donaciones registradas.")
         LazyColumn(
+            modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(donations, key = { it.id }) { donation ->
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(donation.producto.nombre, fontWeight = FontWeight.SemiBold)
-                        Text("Cantidad: ${donation.cantidad} ${donation.producto.unidad}")
-                        Text("Banco: ${donation.banco?.nombre ?: "Banco histórico"}")
-                        Text("Donante: ${donation.donanteReferencia}")
-                        Text("Estado: ${donation.estado}")
-                        if (canReview && donation.estado == "PENDIENTE") {
-                            Row {
-                                TextButton(onClick = { onReview(donation.id, true) }) { Text("Aceptar") }
-                                TextButton(onClick = { onReview(donation.id, false) }) { Text("Rechazar") }
+                    Column {
+                        ProductImage(
+                            category = donation.producto.categoria,
+                            imageUrl = donation.producto.imagenUrl,
+                            contentDescription = donation.producto.nombre,
+                            modifier = Modifier.fillMaxWidth().height(188.dp),
+                        )
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Donación de ${donation.donanteReferencia}",
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                DonationStatusChip(donation.estado)
+                            }
+                            Text(
+                                donation.producto.nombre,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Inventory,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    "${donation.cantidad} ${donation.producto.unidad}",
+                                    modifier = Modifier.padding(start = 8.dp),
+                                )
+                            }
+                            Text(
+                                "Banco: ${donation.banco?.nombre ?: "Banco histórico"}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "Fecha: ${donation.fecha.take(10)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (canReview && donation.estado == "PENDIENTE") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { onReview(donation.id, true) }) { Text("Aceptar") }
+                                    TextButton(onClick = { onReview(donation.id, false) }) {
+                                        Text("Rechazar")
+                                    }
+                                }
                             }
                         }
                     }
@@ -881,10 +1140,19 @@ private fun RequestList(
                         Text("Banco: ${request.banco.nombre}")
                         request.beneficiario?.let { Text("Organización: ${it.nombreOrganizacion}") }
                         request.detalles.forEach { detail ->
-                            Text(
-                                "• ${detail.producto.nombre}: ${detail.cantidadSolicitada} " +
-                                    "(aprobado: ${detail.cantidadAprobada}) ${detail.producto.unidad}",
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                ProductImage(
+                                    category = detail.producto.categoria,
+                                    imageUrl = detail.producto.imagenUrl,
+                                    contentDescription = detail.producto.nombre,
+                                    modifier = Modifier.width(48.dp).height(48.dp),
+                                )
+                                Text(
+                                    "${detail.producto.nombre}: ${detail.cantidadSolicitada} " +
+                                        "(aprobado: ${detail.cantidadAprobada}) ${detail.producto.unidad}",
+                                    modifier = Modifier.padding(start = 10.dp),
+                                )
+                            }
                         }
                         if (canReview && request.estado == "PENDIENTE") {
                             Row {
@@ -947,7 +1215,18 @@ private fun DeliveryList(
                     Text("Entrega: ${delivery.entregadaPor ?: "No indicado"}")
                     Text("Recibe: ${delivery.recibidaPor ?: "Pendiente"}")
                     delivery.detalles.forEach { detail ->
-                        Text("• ${detail.producto.nombre}: ${detail.cantidad} ${detail.producto.unidad}")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ProductImage(
+                                category = detail.producto.categoria,
+                                imageUrl = detail.producto.imagenUrl,
+                                contentDescription = detail.producto.nombre,
+                                modifier = Modifier.width(48.dp).height(48.dp),
+                            )
+                            Text(
+                                "${detail.producto.nombre}: ${detail.cantidad} ${detail.producto.unidad}",
+                                modifier = Modifier.padding(start = 10.dp),
+                            )
+                        }
                     }
                     if (canConfirm && delivery.estado == "REGISTRADA") {
                         TextButton(onClick = { onConfirm(delivery) }) { Text("Confirmar recepción") }
@@ -972,9 +1251,20 @@ private fun AvailabilityList(products: List<com.redalimenta.mobile.data.Availabl
         ) {
             items(products, key = { it.id }) { product ->
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(product.nombre, fontWeight = FontWeight.SemiBold)
-                        Text("${product.categoria} · ${product.cantidadDisponible} ${product.unidad} disponibles")
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        ProductImage(
+                            category = product.categoria,
+                            imageUrl = product.imagenUrl,
+                            contentDescription = product.nombre,
+                            modifier = Modifier.width(76.dp).height(76.dp),
+                        )
+                        Column(modifier = Modifier.padding(start = 12.dp)) {
+                            Text(product.nombre, fontWeight = FontWeight.SemiBold)
+                            Text("${product.categoria} · ${product.cantidadDisponible} ${product.unidad} disponibles")
+                        }
                     }
                 }
             }
@@ -1054,6 +1344,13 @@ private fun ReportList(report: com.redalimenta.mobile.data.SystemReport?) {
 
 @Composable
 private fun ProfileSummary(user: User, onEdit: () -> Unit) {
+    val initials = user.nombre
+        .trim()
+        .split(Regex("\\s+"))
+        .take(2)
+        .mapNotNull { it.firstOrNull() }
+        .joinToString("")
+        .uppercase()
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1064,9 +1361,26 @@ private fun ProfileSummary(user: User, onEdit: () -> Unit) {
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(user.nombre, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                    ) {
+                        Text(
+                            initials.ifBlank { "R" },
+                            modifier = Modifier.padding(16.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Column(modifier = Modifier.padding(start = 12.dp)) {
+                        Text(user.nombre, fontWeight = FontWeight.SemiBold)
+                        Text(displayRoleName(user.rol), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 Text(user.email)
-                Text("Rol: ${displayRoleName(user.rol)} · Estado: ${statusLabel(user.estado)}")
+                Text("Estado: ${statusLabel(user.estado)}")
                 user.telefono?.let { Text("Teléfono: $it") }
                 user.donante?.organizacion?.let { Text("Organización: $it") }
                 user.beneficiario?.let {
@@ -1162,10 +1476,26 @@ private fun TextInputDialog(
 
 @Composable
 private fun EmptyState(message: String) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = MaterialTheme.shapes.large,
     ) {
-        Text(message, style = MaterialTheme.typography.bodyLarge)
+        Column(
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
     }
 }

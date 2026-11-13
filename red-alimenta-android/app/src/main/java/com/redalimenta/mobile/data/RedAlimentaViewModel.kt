@@ -59,6 +59,7 @@ data class AppUiState(
     val bankHistory: List<BankHistoryItem> = emptyList(),
     val report: SystemReport? = null,
     val isLoading: Boolean = false,
+    val isRealtimeConnected: Boolean = false,
     val error: String? = null,
     val notice: String? = null,
 )
@@ -69,6 +70,9 @@ class RedAlimentaViewModel(
     private val mutableState = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = mutableState.asStateFlow()
     private var apiRecoveryJob: Job? = null
+    private var realtimeRefreshJob: Job? = null
+    private var realtimeRefreshPending = false
+    private var isForeground = false
 
     init {
         recoverSession()
@@ -80,6 +84,26 @@ class RedAlimentaViewModel(
 
     fun reportError(message: String) {
         mutableState.update { it.copy(error = message) }
+    }
+
+    fun onAppForeground() {
+        isForeground = true
+        val token = try {
+            SessionStore.getToken()
+        } catch (error: Exception) {
+            reportError(error.toApiMessage())
+            null
+        }
+        if (!token.isNullOrBlank()) {
+            connectRealtime(token)
+            refresh()
+        }
+    }
+
+    fun onAppBackground() {
+        isForeground = false
+        RealtimeClient.disconnect()
+        mutableState.update { it.copy(isRealtimeConnected = false) }
     }
 
     fun selectTab(tab: AppTab) {
@@ -124,11 +148,23 @@ class RedAlimentaViewModel(
     }
 
     fun signIn(email: String, password: String) {
+        apiRecoveryJob?.cancel()
+        realtimeRefreshJob?.cancel()
+        RealtimeClient.disconnect()
+        mutableState.value = AppUiState(isLoading = true)
         launchRequest("Inicio de sesión correcto.") {
             SessionStore.clearToken()
-            val response = api.login(LoginPayload(email.trim(), password))
-            SessionStore.saveToken(response.accessToken)
-            val user = api.currentUser()
+            val user = try {
+                val response = api.login(LoginPayload(email.trim(), password))
+                SessionStore.saveToken(response.accessToken)
+                api.currentUser()
+            } catch (error: CancellationException) {
+                clearTokenAfterFailedSignIn(error)
+                throw error
+            } catch (error: Exception) {
+                clearTokenAfterFailedSignIn(error)
+                throw error
+            }
             mutableState.update {
                 AppUiState(
                     user = user,
@@ -138,6 +174,7 @@ class RedAlimentaViewModel(
                 )
             }
             if (user.estado == "ACTIVA") loadData()
+            connectRealtimeForCurrentSession()
         }
     }
 
@@ -148,11 +185,15 @@ class RedAlimentaViewModel(
     }
 
     fun signOut() {
+        apiRecoveryJob?.cancel()
+        realtimeRefreshJob?.cancel()
+        RealtimeClient.disconnect()
+        val shouldRevokeSession = mutableState.value.user != null
+        mutableState.value = AppUiState(isLoading = true)
         viewModelScope.launch {
-            mutableState.update { it.copy(isLoading = true, error = null, notice = null) }
             var failure: String? = null
             try {
-                if (mutableState.value.user != null) api.logout()
+                if (shouldRevokeSession) api.logout()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -178,12 +219,49 @@ class RedAlimentaViewModel(
             val user = api.currentUser()
             mutableState.update { it.copy(user = user) }
             if (user.estado == "ACTIVA") loadData()
+            connectRealtimeForCurrentSession()
         }
     }
 
-    fun saveProduct(id: Int?, product: ProductPayload) {
+    fun saveProduct(
+        id: Int?,
+        product: ProductPayload,
+        image: ProductImageUpload? = null,
+        removeImage: Boolean = false,
+    ) {
         launchRequest(if (id == null) "Producto creado." else "Producto actualizado.") {
-            if (id == null) api.createProduct(product) else api.updateProduct(id, product)
+            val imagePart = image?.let {
+                MultipartBody.Part.createFormData(
+                    "imagen",
+                    it.fileName,
+                    it.content.toRequestBody(it.mimeType.toMediaTypeOrNull()),
+                )
+            }
+            if (id == null) {
+                if (imagePart == null) {
+                    api.createProduct(product)
+                } else {
+                    api.createProductWithImage(
+                        nombre = product.nombre.asMultipartText(),
+                        categoria = product.categoria.asMultipartText(),
+                        unidad = product.unidad.asMultipartText(),
+                        activo = product.activo.toString().asMultipartText(),
+                        imagen = imagePart,
+                    )
+                }
+            } else if (imagePart != null || removeImage) {
+                api.updateProductWithImage(
+                    id = id,
+                    nombre = product.nombre.asMultipartText(),
+                    categoria = product.categoria.asMultipartText(),
+                    unidad = product.unidad.asMultipartText(),
+                    activo = product.activo.toString().asMultipartText(),
+                    imagen = imagePart,
+                    eliminarImagen = if (removeImage) "true".asMultipartText() else null,
+                )
+            } else {
+                api.updateProduct(id, product)
+            }
             loadData()
         }
     }
@@ -199,7 +277,7 @@ class RedAlimentaViewModel(
         val bankId = mutableState.value.selectedBankId
             ?: return showError("Selecciona un banco antes de modificar su inventario.")
         launchRequest("Producto agregado al inventario.") {
-            api.addProductToInventory(bankId, mapOf("productoId" to productId, "publicado" to false))
+            api.addProductToInventory(bankId, InventoryAddPayload(productId))
             loadData()
         }
     }
@@ -211,7 +289,7 @@ class RedAlimentaViewModel(
             api.updateInventorySettings(
                 bankId,
                 productId,
-                mapOf("publicado" to published),
+                InventorySettingsPayload(published),
             )
             loadData()
         }
@@ -299,7 +377,7 @@ class RedAlimentaViewModel(
 
     fun reviewDonation(id: Int, accept: Boolean) {
         launchRequest(if (accept) "Donación aceptada e inventario actualizado." else "Donación rechazada.") {
-            api.reviewDonation(id, mapOf("decision" to if (accept) "ACEPTAR" else "RECHAZAR"))
+            api.reviewDonation(id, DonationReviewPayload(if (accept) "ACEPTAR" else "RECHAZAR"))
             loadData()
         }
     }
@@ -377,6 +455,7 @@ class RedAlimentaViewModel(
                         )
                     }
                     if (user.estado == "ACTIVA") loadData()
+                    connectRealtimeForCurrentSession()
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -430,6 +509,7 @@ class RedAlimentaViewModel(
                         report = report,
                     )
                 }
+
             }
             "BANCO" -> {
                 val products = api.getProducts()
@@ -473,6 +553,59 @@ class RedAlimentaViewModel(
         }
     }
 
+    private fun connectRealtimeForCurrentSession() {
+        if (!isForeground) return
+        val token = try {
+            SessionStore.getToken()
+        } catch (error: Exception) {
+            reportError(error.toApiMessage())
+            null
+        } ?: return
+        connectRealtime(token)
+    }
+
+    private fun connectRealtime(token: String) {
+        RealtimeClient.connect(
+            token = token,
+            onConnectionChanged = { connected ->
+                mutableState.update { it.copy(isRealtimeConnected = connected) }
+            },
+            onDataChanged = ::refreshRealtimeData,
+        )
+    }
+
+    private fun refreshRealtimeData() {
+        if (mutableState.value.user == null) return
+        if (realtimeRefreshJob?.isActive == true) {
+            realtimeRefreshPending = true
+            return
+        }
+        realtimeRefreshJob = viewModelScope.launch {
+            do {
+                realtimeRefreshPending = false
+                delay(200)
+                try {
+                    val latestUser = api.currentUser()
+                    if (mutableState.value.user?.id != latestUser.id) {
+                        mutableState.value = AppUiState(
+                            user = latestUser,
+                            selectedBankId = latestUser.membresias.firstOrNull()?.banco?.id,
+                            selectedTab = tabsFor(latestUser.rol).first(),
+                        )
+                    } else {
+                        mutableState.update { it.copy(user = latestUser) }
+                    }
+                    if (latestUser.estado == "ACTIVA") loadData()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    clearInvalidSessionIfUnauthorized(error)
+                    Log.e("RedAlimenta", "Realtime data refresh failed", error)
+                }
+            } while (realtimeRefreshPending && mutableState.value.user != null)
+        }
+    }
+
     private fun launchRequest(successMessage: String?, request: suspend () -> Unit) {
         viewModelScope.launch {
             mutableState.update { it.copy(isLoading = true, error = null, notice = null) }
@@ -498,12 +631,23 @@ class RedAlimentaViewModel(
 
     private fun clearInvalidSessionIfUnauthorized(error: Exception) {
         if (error is HttpException && error.code() == 401) {
+            apiRecoveryJob?.cancel()
+            realtimeRefreshJob?.cancel()
+            RealtimeClient.disconnect()
+            mutableState.value = AppUiState()
             try {
                 SessionStore.clearToken()
             } catch (clearError: Exception) {
                 mutableState.update { it.copy(error = clearError.toApiMessage()) }
             }
-            mutableState.update { it.copy(user = null) }
+        }
+    }
+
+    private fun clearTokenAfterFailedSignIn(error: Exception) {
+        try {
+            SessionStore.clearToken()
+        } catch (clearError: Exception) {
+            error.addSuppressed(clearError)
         }
     }
 
@@ -584,6 +728,9 @@ class RedAlimentaViewModel(
         mutableState.update { it.copy(error = message) }
     }
 }
+
+private fun String.asMultipartText() =
+    toRequestBody("text/plain".toMediaTypeOrNull())
 
 fun tabsFor(role: String): List<AppTab> = when (role) {
     "ADMIN_GENERAL", "SUPER_ADMIN" -> listOf(

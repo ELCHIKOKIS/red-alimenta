@@ -7,6 +7,8 @@ import {
 } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
+import { coverageRoom, publishRealtimeChange } from '../realtime/RealtimeHub';
+import { ADMIN_ROLES } from '../lib/roles';
 
 interface RequestedItem {
   productoId: number;
@@ -193,6 +195,14 @@ export async function createRequest(req: Request, res: Response, next: NextFunct
       });
       return request;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    publishRealtimeChange(
+      { userIds: [req.auth.userId], bankIds: [bancoId], roles: ADMIN_ROLES },
+      {
+        type: 'request.created',
+        resource: 'requests',
+        resourceId: created.id,
+      },
+    );
     res.status(201).json(created);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -219,9 +229,16 @@ export async function reviewRequest(req: Request, res: Response, next: NextFunct
     const updated = await prisma.$transaction(async (tx) => {
       const request = await tx.solicitudAlimentos.findUnique({
         where: { id: requestId },
-        include: { detalles: true },
+        include: {
+          detalles: true,
+          beneficiario: { select: { usuarioId: true } },
+        },
       });
       if (!request) throw new AppError('Food request not found', 404);
+      const coverage = await tx.coberturaBanco.findMany({
+        where: { bancoId: request.bancoId },
+        select: { departamento: true, municipio: true },
+      });
       if (
         req.auth!.role === RolUsuario.BANCO
         && !req.auth!.bankIds.includes(request.bancoId)
@@ -309,7 +326,7 @@ export async function reviewRequest(req: Request, res: Response, next: NextFunct
         },
       });
 
-      return tx.solicitudAlimentos.findUnique({
+      const updatedRequest = await tx.solicitudAlimentos.findUnique({
         where: { id: request.id },
         include: {
           banco: { select: { id: true, nombre: true } },
@@ -317,9 +334,41 @@ export async function reviewRequest(req: Request, res: Response, next: NextFunct
           detalles: { include: { producto: true } },
         },
       });
+      return {
+        request: updatedRequest,
+        beneficiaryUserId: request.beneficiario.usuarioId,
+        bankId: request.bancoId,
+        coverageRooms: coverage.map((item) => coverageRoom(item.departamento, item.municipio)),
+      };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    res.json(updated);
+    publishRealtimeChange(
+      {
+        userIds: [updated.beneficiaryUserId],
+        bankIds: [updated.bankId],
+        roles: ADMIN_ROLES,
+      },
+      {
+        type: 'request.updated',
+        resource: 'requests',
+        resourceId: requestId,
+      },
+    );
+    if (decision === 'APROBAR') {
+      publishRealtimeChange(
+        {
+          bankIds: [updated.bankId],
+          roles: ADMIN_ROLES,
+          coverageRooms: updated.coverageRooms,
+        },
+        {
+          type: 'inventory.updated',
+          resource: 'availability',
+          resourceId: updated.bankId,
+        },
+      );
+    }
+    res.json(updated.request);
   } catch (error) {
     next(error);
   }

@@ -19,7 +19,7 @@ export function errorHandler(
     const statusCode = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
     return res.status(statusCode).json({
       success: false,
-      error: statusCode === 413 ? 'Uploaded document exceeds the 5 MB limit' : err.message,
+      error: statusCode === 413 ? 'Uploaded file exceeds the 5 MB limit' : err.message,
     });
   }
 

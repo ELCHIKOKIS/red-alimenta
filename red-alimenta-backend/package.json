@@ -15,7 +15,7 @@
     "superadmin:create": "tsx src/scripts/bootstrapSuperAdmin.ts",
     "admin:promote-super": "tsx src/scripts/promoteSuperAdmin.ts",
     "test": "npm run build && npm run test:unit",
-    "test:unit": "tsx --test src/lib/auth.test.ts src/lib/roles.test.ts"
+    "test:unit": "tsx --test src/lib/auth.test.ts src/lib/roles.test.ts src/realtime/realtime.test.ts src/controllers/productsController.test.ts"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +23,7 @@
   "description": "",
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.7",
     "express": "^5.3.0",
@@ -30,7 +31,9 @@
     "helmet": "^8.3.0",
     "morgan": "^1.12.1",
     "multer": "^2.5.0",
-    "prisma": "^5.22.0"
+    "prisma": "^5.22.0",
+    "redis": "^5.8.0",
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -38,6 +41,7 @@
     "@types/morgan": "^1.9.10",
     "@types/multer": "^2.3.0",
     "@types/node": "^26.6.5",
+    "socket.io-client": "^4.8.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

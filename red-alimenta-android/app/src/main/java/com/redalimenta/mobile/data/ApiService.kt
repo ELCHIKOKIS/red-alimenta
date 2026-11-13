@@ -5,6 +5,7 @@ import com.redalimenta.mobile.BuildConfig
 import okhttp3.Interceptor
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody
 import org.json.JSONObject
 import retrofit2.HttpException
 import retrofit2.Response
@@ -50,10 +51,32 @@ interface ApiService {
     @POST("api/products")
     suspend fun createProduct(@Body product: ProductPayload): Product
 
+    @Multipart
+    @POST("api/products")
+    suspend fun createProductWithImage(
+        @Part("nombre") nombre: RequestBody,
+        @Part("categoria") categoria: RequestBody,
+        @Part("unidad") unidad: RequestBody,
+        @Part("activo") activo: RequestBody,
+        @Part imagen: MultipartBody.Part?,
+    ): Product
+
     @PATCH("api/products/{id}")
     suspend fun updateProduct(
         @Path("id") id: Int,
         @Body product: ProductPayload,
+    ): Product
+
+    @Multipart
+    @PATCH("api/products/{id}")
+    suspend fun updateProductWithImage(
+        @Path("id") id: Int,
+        @Part("nombre") nombre: RequestBody,
+        @Part("categoria") categoria: RequestBody,
+        @Part("unidad") unidad: RequestBody,
+        @Part("activo") activo: RequestBody,
+        @Part imagen: MultipartBody.Part?,
+        @Part("eliminarImagen") eliminarImagen: RequestBody?,
     ): Product
 
     @DELETE("api/products/{id}")
@@ -74,14 +97,14 @@ interface ApiService {
     @POST("api/banks/{bankId}/inventory")
     suspend fun addProductToInventory(
         @Path("bankId") bankId: Int,
-        @Body payload: Map<String, Any>,
+        @Body payload: InventoryAddPayload,
     ): InventoryItem
 
     @PATCH("api/banks/{bankId}/inventory/{productId}")
     suspend fun updateInventorySettings(
         @Path("bankId") bankId: Int,
         @Path("productId") productId: Int,
-        @Body payload: Map<String, Boolean>,
+        @Body payload: InventorySettingsPayload,
     ): InventoryItem
 
     @GET("api/donations")
@@ -93,7 +116,7 @@ interface ApiService {
     @PATCH("api/donations/{id}/review")
     suspend fun reviewDonation(
         @Path("id") id: Int,
-        @Body payload: Map<String, String>,
+        @Body payload: DonationReviewPayload,
     ): Donation
 
     @GET("api/requests")

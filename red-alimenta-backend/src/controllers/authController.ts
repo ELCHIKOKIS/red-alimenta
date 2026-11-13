@@ -5,6 +5,8 @@ import prisma from '../lib/prisma';
 import { AppError } from '../lib/errors';
 import { createAccessToken, getAccessTokenLifetimeSeconds, hashPassword, verifyPassword } from '../lib/auth';
 import { serializePublicUser } from '../lib/publicUser';
+import { disconnectRealtimeSession, publishRealtimeChange } from '../realtime/RealtimeHub';
+import { ADMIN_ROLES } from '../lib/roles';
 
 const DUMMY_PASSWORD_HASH = `scrypt$${'0'.repeat(32)}$${'0'.repeat(128)}`;
 
@@ -74,7 +76,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     const password = validatePassword(body.password);
     const passwordHash = await hashPassword(password);
 
-    const user = await prisma.$transaction(async (tx) => {
+    const created = await prisma.$transaction(async (tx) => {
       const createdUser = await tx.usuario.create({
         data: {
           nombre: name,
@@ -85,6 +87,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
         },
       });
 
+      let registrationRequestId: number | undefined;
       if (accountType === 'DONANTE') {
         await tx.donante.create({
           data: {
@@ -107,19 +110,36 @@ export async function register(req: Request, res: Response, next: NextFunction) 
           },
         });
 
-        await tx.solicitudRegistro.create({
+        const registration = await tx.solicitudRegistro.create({
           data: {
             beneficiarioId: beneficiary.id,
             solicitanteId: createdUser.id,
           },
         });
+        registrationRequestId = registration.id;
       }
 
-      return createdUser;
+      return { user: createdUser, registrationRequestId };
     });
 
+    if (created.registrationRequestId !== undefined) {
+      publishRealtimeChange(
+        { roles: ADMIN_ROLES },
+        {
+          type: 'registration.created',
+          resource: 'registrations',
+          resourceId: created.registrationRequestId,
+        },
+      );
+    } else {
+      publishRealtimeChange(
+        { roles: ADMIN_ROLES },
+        { type: 'user.created', resource: 'users', resourceId: created.user.id },
+      );
+    }
+
     res.status(201).json({
-      user: serializePublicUser(user),
+      user: serializePublicUser(created.user),
       message: accountType === 'BENEFICIARIO'
         ? 'Registration submitted and awaiting administrator review'
         : 'Registration completed',
@@ -186,6 +206,7 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
       where: { id: req.auth.sessionId, revocadaEn: null },
       data: { revocadaEn: new Date() },
     });
+    disconnectRealtimeSession(req.auth.sessionId);
     res.status(204).send();
   } catch (error) {
     next(error);
@@ -274,6 +295,7 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
       }
 
       let requiresVerificationReview = false;
+      let registrationRequestId: number | undefined;
       if (containsBeneficiaryFields || (containsAddress && current.rol === RolUsuario.BENEFICIARIO)) {
         if (!current.beneficiario) throw new AppError('Beneficiary profile not found', 404);
         const data: Prisma.BeneficiarioUpdateInput = {};
@@ -304,12 +326,13 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
         }
         await tx.beneficiario.update({ where: { usuarioId: current.id }, data });
         if (requiresVerificationReview) {
-          await tx.solicitudRegistro.create({
+          const registration = await tx.solicitudRegistro.create({
             data: {
               beneficiarioId: current.beneficiario.id,
               solicitanteId: current.id,
             },
           });
+          registrationRequestId = registration.id;
         }
       }
 
@@ -323,8 +346,28 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
           detalles: { campos: Object.keys(body), requiereVerificacion: requiresVerificationReview },
         },
       });
-      return { requiresVerificationReview };
+      return { requiresVerificationReview, registrationRequestId };
     });
+
+    publishRealtimeChange(
+      { userIds: [req.auth.userId] },
+      {
+        type: 'profile.updated',
+        resource: 'users',
+        resourceId: req.auth.userId,
+      },
+    );
+    if (updated.registrationRequestId !== undefined) {
+      publishRealtimeChange(
+        { roles: ADMIN_ROLES },
+        {
+          type: 'registration.created',
+          resource: 'registrations',
+          resourceId: updated.registrationRequestId,
+        },
+      );
+      disconnectRealtimeSession(req.auth.sessionId);
+    }
 
     res.json({
       message: updated.requiresVerificationReview

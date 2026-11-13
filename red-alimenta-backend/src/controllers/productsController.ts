@@ -1,7 +1,51 @@
 import { NextFunction, Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
+import { Prisma, RolUsuario } from '@prisma/client';
+import multer from 'multer';
 import prisma from '../lib/prisma';
 import { AppError, parseBooleanField } from '../lib/errors';
+import { ADMIN_ROLES } from '../lib/roles';
+import { publishRealtimeChange } from '../realtime/RealtimeHub';
+
+const PRODUCT_VIEWER_ROLES = [
+  ...ADMIN_ROLES,
+  RolUsuario.BANCO,
+  RolUsuario.DONANTE,
+  RolUsuario.BENEFICIARIO,
+];
+const MAX_PRODUCT_IMAGE_SIZE = 5 * 1024 * 1024;
+const PRODUCT_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+export const productImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_PRODUCT_IMAGE_SIZE, files: 1, fields: 8 },
+  fileFilter: (_req, file, callback) => {
+    if (!PRODUCT_IMAGE_TYPES.has(file.mimetype)) {
+      callback(new AppError('Product images must be JPEG, PNG, or WebP', 400));
+      return;
+    }
+    callback(null, true);
+  },
+}).single('imagen');
+
+export function hasExpectedProductImageSignature(mimeType: string, buffer: Buffer): boolean {
+  if (mimeType === 'image/jpeg') {
+    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mimeType === 'image/png') {
+    return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  }
+  if (mimeType === 'image/webp') {
+    return buffer.length >= 12
+      && buffer.subarray(0, 4).toString('ascii') === 'RIFF'
+      && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  }
+  return false;
+}
+
+function getProductImageUrl(productId: number): string {
+  return `/api/products/${productId}/image?v=${randomUUID()}`;
+}
 
 function normalizeText(value: unknown, fieldName: string) {
   if (typeof value !== 'string' || value.trim() === '' || value.trim().length > 191) {
@@ -65,7 +109,14 @@ export async function listProducts(req: Request, res: Response, next: NextFuncti
     const products = await prisma.producto.findMany({
       where,
       orderBy: { nombre: 'asc' },
-      select: { id: true, nombre: true, categoria: true, unidad: true, activo: true },
+      select: {
+        id: true,
+        nombre: true,
+        categoria: true,
+        unidad: true,
+        activo: true,
+        imagenUrl: true,
+      },
     });
 
     res.json(products);
@@ -89,6 +140,7 @@ export async function getProductById(req: Request, res: Response, next: NextFunc
         categoria: true,
         unidad: true,
         activo: true,
+        imagenUrl: true,
         _count: {
           select: { donaciones: true, entregas: true },
         },
@@ -108,6 +160,9 @@ export async function getProductById(req: Request, res: Response, next: NextFunc
 export async function createProduct(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = normalizeProductPayload(req.body);
+    if (req.file && !hasExpectedProductImageSignature(req.file.mimetype, req.file.buffer)) {
+      throw new AppError('Image contents do not match the declared file type', 400);
+    }
 
     const existingProduct = await prisma.producto.findUnique({
       where: { nombre: payload.nombre },
@@ -118,10 +173,38 @@ export async function createProduct(req: Request, res: Response, next: NextFunct
     }
 
     const product = await prisma.$transaction(async (tx) => {
-      const created = await tx.producto.create({
-        data: payload,
-        select: { id: true, nombre: true, categoria: true, unidad: true, activo: true },
+      let created = await tx.producto.create({
+        data: { ...payload, imagenUrl: null },
+        select: {
+          id: true,
+          nombre: true,
+          categoria: true,
+          unidad: true,
+          activo: true,
+          imagenUrl: true,
+        },
       });
+      if (req.file) {
+        await tx.imagenProducto.create({
+          data: {
+            productoId: created.id,
+            tipoMime: req.file.mimetype,
+            contenido: req.file.buffer,
+          },
+        });
+        created = await tx.producto.update({
+          where: { id: created.id },
+          data: { imagenUrl: getProductImageUrl(created.id) },
+          select: {
+            id: true,
+            nombre: true,
+            categoria: true,
+            unidad: true,
+            activo: true,
+            imagenUrl: true,
+          },
+        });
+      }
       await tx.auditoria.create({
         data: {
           usuarioId: req.auth!.userId,
@@ -132,6 +215,10 @@ export async function createProduct(req: Request, res: Response, next: NextFunct
       });
       return created;
     });
+    publishRealtimeChange(
+      { roles: PRODUCT_VIEWER_ROLES },
+      { type: 'product.created', resource: 'products', resourceId: product.id },
+    );
     res.status(201).json(product);
   } catch (error) {
     next(error);
@@ -154,6 +241,15 @@ export async function updateProduct(req: Request, res: Response, next: NextFunct
       throw new AppError('Product payload is required', 400);
     }
     const body = req.body as Record<string, unknown>;
+    const clearImage = body.eliminarImagen === undefined
+      ? false
+      : parseBooleanField(body.eliminarImagen, 'eliminarImagen');
+    if (req.file && clearImage) {
+      throw new AppError('Choose a new image or remove the current image, not both', 400);
+    }
+    if (req.file && !hasExpectedProductImageSignature(req.file.mimetype, req.file.buffer)) {
+      throw new AppError('Image contents do not match the declared file type', 400);
+    }
     const payload = normalizeProductPayload({
       nombre: body.nombre ?? product.nombre,
       categoria: body.categoria ?? product.categoria,
@@ -172,9 +268,37 @@ export async function updateProduct(req: Request, res: Response, next: NextFunct
     const updated = await prisma.$transaction(async (tx) => {
       const item = await tx.producto.update({
         where: { id: productId },
-        data: payload,
-        select: { id: true, nombre: true, categoria: true, unidad: true, activo: true },
+        data: {
+          ...payload,
+          imagenUrl: req.file
+            ? getProductImageUrl(productId)
+            : clearImage ? null : product.imagenUrl,
+        },
+        select: {
+          id: true,
+          nombre: true,
+          categoria: true,
+          unidad: true,
+          activo: true,
+          imagenUrl: true,
+        },
       });
+      if (req.file) {
+        await tx.imagenProducto.upsert({
+          where: { productoId: productId },
+          create: {
+            productoId: productId,
+            tipoMime: req.file.mimetype,
+            contenido: req.file.buffer,
+          },
+          update: {
+            tipoMime: req.file.mimetype,
+            contenido: req.file.buffer,
+          },
+        });
+      } else if (clearImage) {
+        await tx.imagenProducto.deleteMany({ where: { productoId: productId } });
+      }
       await tx.auditoria.create({
         data: {
           usuarioId: req.auth!.userId,
@@ -186,7 +310,73 @@ export async function updateProduct(req: Request, res: Response, next: NextFunct
       return item;
     });
 
+    publishRealtimeChange(
+      { roles: PRODUCT_VIEWER_ROLES },
+      { type: 'product.updated', resource: 'products', resourceId: updated.id },
+    );
     res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getProductImage(req: Request, res: Response, next: NextFunction) {
+  try {
+    const productId = Number(req.params.id);
+    if (!Number.isInteger(productId) || productId <= 0) {
+      throw new AppError('Product id must be a positive integer', 400);
+    }
+
+    if (!req.auth) throw new AppError('Authentication is required', 401);
+    if (req.auth.role === RolUsuario.BENEFICIARIO) {
+      const beneficiary = await prisma.beneficiario.findUnique({
+        where: { usuarioId: req.auth.userId },
+        select: {
+          departamento: true,
+          municipio: true,
+          estadoVerificacion: true,
+        },
+      });
+      if (!beneficiary || beneficiary.estadoVerificacion !== 'APROBADA') {
+        throw new AppError('Beneficiary registration has not been approved', 403);
+      }
+
+      const inventory = await prisma.inventario.findMany({
+        where: {
+          productoId: productId,
+          activo: true,
+          publicado: true,
+          producto: { activo: true },
+          banco: {
+            estado: 'ACTIVO',
+            coberturas: {
+              some: {
+                departamento: beneficiary.departamento,
+                OR: [
+                  { municipio: beneficiary.municipio },
+                  { municipio: '*' },
+                ],
+              },
+            },
+          },
+        },
+        select: { stockActual: true, stockReservado: true },
+      });
+      if (!inventory.some((item) => item.stockActual > item.stockReservado)) {
+        throw new AppError('Product image not found', 404);
+      }
+    }
+
+    const image = await prisma.imagenProducto.findUnique({
+      where: { productoId: productId },
+      select: { tipoMime: true, contenido: true },
+    });
+    if (!image) throw new AppError('Product image not found', 404);
+
+    res
+      .type(image.tipoMime)
+      .set('Cache-Control', 'private, max-age=31536000, immutable')
+      .send(Buffer.from(image.contenido));
   } catch (error) {
     next(error);
   }
@@ -219,6 +409,10 @@ export async function deleteProduct(req: Request, res: Response, next: NextFunct
       });
     });
 
+    publishRealtimeChange(
+      { roles: PRODUCT_VIEWER_ROLES },
+      { type: 'product.deactivated', resource: 'products', resourceId: productId },
+    );
     res.status(204).send();
   } catch (error) {
     next(error);

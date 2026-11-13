@@ -1,6 +1,6 @@
 # RED-ALIMENTA Backend
 
-API REST de RED-ALIMENTA, construida con Node.js, TypeScript, Express, Prisma y MySQL. Administra usuarios, bancos, inventarios independientes, donaciones, solicitudes, entregas, verificación y auditoría.
+API REST y Socket.IO de RED-ALIMENTA, construida con Node.js, TypeScript, Express, Prisma y MySQL. Administra usuarios, bancos, inventarios independientes, donaciones, solicitudes, entregas, verificación y auditoría.
 
 ## Requisitos
 
@@ -34,6 +34,8 @@ npm.cmd test
 
 La migración `20261015180000_multibank_foundation` agrega soporte para los nuevos roles, sesiones, bancos, membresías, coberturas, perfiles de beneficiarios, documentos de verificación, inventario por banco, movimientos, solicitudes con varios productos, entregas y auditoría.
 
+La migración `20261113010000_product_images` agrega `productos.imagen_url` (nullable) y la tabla `imagenes_productos` para guardar fotografías en MySQL. Es aditiva: conserva los productos existentes y permite que sigan usando las imágenes locales por categoría hasta que se cargue una fotografía.
+
 Para conservar los datos existentes:
 
 - No elimina tablas ni registros existentes.
@@ -50,6 +52,8 @@ npm.cmd run prisma:migrate
 ```
 
 Este comando aplica migraciones pendientes y no debe sustituirse por `prisma db push`. La migración no se ejecuta automáticamente al iniciar la API.
+
+Antes de desplegar la versión de la API que incluye fotografías, aplica también la migración `20261113010000_product_images` en el entorno correspondiente. El esquema debe estar actualizado antes de iniciar ese código; de lo contrario, las consultas de productos no encontrarán la columna nueva.
 
 `prisma/schema.prisma` es el esquema canónico. Las migraciones existentes se conservan en orden como historial; no se deben consolidar ni eliminar sin una estrategia de re-baseline coordinada para todos los entornos, porque puede romper `prisma migrate deploy` en Aiven o Render.
 
@@ -104,6 +108,10 @@ npm.cmd run build
 npm.cmd start
 ```
 
+La misma instancia HTTP acepta conexiones Socket.IO mediante WebSocket seguro (`wss` en producción). Android se autentica con el token JWT y recibe avisos de cambios solo en las salas de su cuenta, banco, rol administrativo o cobertura autorizada. Los avisos contienen identificadores, no registros privados; la aplicación vuelve a consultar los endpoints REST para obtener los datos vigentes. REST sigue funcionando si WebSocket no está disponible.
+
+Con una sola instancia, la distribución de eventos es local al proceso. Para escalar el servicio a varias instancias en Render, configura `REALTIME_REDIS_URL` con una conexión Redis privada y TLS (`rediss://`) para activar el adaptador de Socket.IO. Si Redis no está disponible, la API REST sigue funcionando y el backend registra que la distribución en tiempo real es local. Los clientes se reconectan y sincronizan por REST después de una interrupción; no se consulta MySQL periódicamente para detectar cambios.
+
 ## Funcionalidades y permisos
 
 - `ADMIN_GENERAL`: administra bancos, usuarios y verificaciones; supervisa operaciones, informes y auditoría.
@@ -117,6 +125,8 @@ Los usuarios autenticados pueden actualizar su perfil en `PATCH /api/auth/me`. S
 
 Los documentos de verificación aceptan PDF, JPEG o PNG hasta 5 MB y se almacenan localmente en `storage/documents` por defecto. `DOCUMENTS_DIR` permite configurar otra ubicación; no se debe exponer esa carpeta públicamente.
 
+Las fotografías de productos aceptan JPEG, PNG o WebP hasta 5 MB. Se guardan en la tabla `imagenes_productos` de MySQL, por lo que están disponibles en otros dispositivos y no dependen del disco temporal de Render. Los productos existentes conservan `imagenUrl = null` y usan las ilustraciones locales de Android por categoría.
+
 ## Pruebas y dependencias
 
 ```powershell
@@ -124,4 +134,4 @@ npm.cmd test
 npm.cmd audit
 ```
 
-Las pruebas unitarias actuales cubren hash de contraseñas y tokens. Las pruebas que requieren MySQL deben ejecutarse con una base de datos de desarrollo independiente.
+Las pruebas unitarias cubren hash de contraseñas, tokens, roles y aislamiento de salas en Socket.IO. Las pruebas que requieren MySQL deben ejecutarse con una base de datos de desarrollo independiente.

@@ -10,7 +10,14 @@ import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
 import { assertBankAccess, getBankId } from '../lib/bankAccess';
 import { hashPassword } from '../lib/auth';
-import { isAdminRole } from '../lib/roles';
+import { ADMIN_ROLES, isAdminRole } from '../lib/roles';
+import { coverageRoom, publishRealtimeChange } from '../realtime/RealtimeHub';
+
+function coverageRooms(
+  coverages: Array<{ departamento: string; municipio: string }>,
+): string[] {
+  return coverages.map((coverage) => coverageRoom(coverage.departamento, coverage.municipio));
+}
 
 function asObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -117,6 +124,10 @@ export async function createBank(req: Request, res: Response, next: NextFunction
       });
       return created;
     });
+    publishRealtimeChange(
+      { roles: ADMIN_ROLES, coverageRooms: coverageRooms(coberturas) },
+      { type: 'bank.created', resource: 'banks', resourceId: bank.id },
+    );
     res.status(201).json(bank);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -158,6 +169,10 @@ export async function updateBank(req: Request, res: Response, next: NextFunction
 
     const updated = await prisma.$transaction(async (tx) => {
       const bank = await tx.bancoAlimentos.update({ where: { id: bankId }, data });
+      const coverages = await tx.coberturaBanco.findMany({
+        where: { bancoId: bankId },
+        select: { departamento: true, municipio: true },
+      });
       await tx.auditoria.create({
         data: {
           usuarioId: req.auth!.userId,
@@ -168,9 +183,13 @@ export async function updateBank(req: Request, res: Response, next: NextFunction
           detalles: { campos: Object.keys(data) },
         },
       });
-      return bank;
+      return { bank, coverageRooms: coverageRooms(coverages) };
     });
-    res.json(updated);
+    publishRealtimeChange(
+      { bankIds: [bankId], roles: ADMIN_ROLES, coverageRooms: updated.coverageRooms },
+      { type: 'bank.updated', resource: 'banks', resourceId: bankId },
+    );
+    res.json(updated.bank);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return next(new AppError('A food bank with that name or identification already exists', 409));
@@ -208,6 +227,14 @@ export async function addBankCoverage(req: Request, res: Response, next: NextFun
       });
       return coverageRow;
     });
+    publishRealtimeChange(
+      {
+        bankIds: [bankId],
+        roles: ADMIN_ROLES,
+        coverageRooms: [coverageRoom(coverage.departamento, coverage.municipio)],
+      },
+      { type: 'bank.coverage.updated', resource: 'banks', resourceId: bankId },
+    );
     res.status(201).json(created);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -272,6 +299,10 @@ export async function createBankUser(req: Request, res: Response, next: NextFunc
       });
       return created;
     });
+    publishRealtimeChange(
+      { bankIds: [bankId], roles: ADMIN_ROLES },
+      { type: 'user.created', resource: 'users', resourceId: user.id },
+    );
     res.status(201).json(user);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -363,7 +394,10 @@ export async function addProductToInventory(req: Request, res: Response, next: N
     }
     const inventory = await prisma.$transaction(async (tx) => {
       const [bank, product] = await Promise.all([
-        tx.bancoAlimentos.findUnique({ where: { id: bankId } }),
+        tx.bancoAlimentos.findUnique({
+          where: { id: bankId },
+          include: { coberturas: { select: { departamento: true, municipio: true } } },
+        }),
         tx.producto.findUnique({ where: { id: productId } }),
       ]);
       if (!bank || bank.estado !== EstadoBanco.ACTIVO) {
@@ -387,9 +421,16 @@ export async function addProductToInventory(req: Request, res: Response, next: N
           entidadId: String(created.id),
         },
       });
-      return created;
+      return {
+        inventory: created,
+        coverageRooms: coverageRooms(bank.coberturas),
+      };
     });
-    res.status(201).json(inventory);
+    publishRealtimeChange(
+      { bankIds: [bankId], roles: ADMIN_ROLES, coverageRooms: inventory.coverageRooms },
+      { type: 'inventory.updated', resource: 'availability', resourceId: bankId },
+    );
+    res.status(201).json(inventory.inventory);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return next(new AppError('Product is already in this bank inventory', 409));
@@ -415,6 +456,10 @@ export async function updateInventorySettings(req: Request, res: Response, next:
     if (typeof body.publicado === 'boolean') data.publicado = body.publicado;
     if (typeof body.activo === 'boolean') data.activo = body.activo;
     const updated = await prisma.$transaction(async (tx) => {
+      const coverages = await tx.coberturaBanco.findMany({
+        where: { bancoId: bankId },
+        select: { departamento: true, municipio: true },
+      });
       const item = await tx.inventario.update({
         where: { bancoId_productoId: { bancoId: bankId, productoId: productId } },
         data,
@@ -433,9 +478,13 @@ export async function updateInventorySettings(req: Request, res: Response, next:
           },
         },
       });
-      return item;
+      return { item, coverageRooms: coverageRooms(coverages) };
     });
-    res.json(updated);
+    publishRealtimeChange(
+      { bankIds: [bankId], roles: ADMIN_ROLES, coverageRooms: updated.coverageRooms },
+      { type: 'inventory.updated', resource: 'availability', resourceId: bankId },
+    );
+    res.json(updated.item);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return next(new AppError('Product inventory not found for this food bank', 404));
@@ -459,6 +508,10 @@ export async function adjustInventory(req: Request, res: Response, next: NextFun
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const coverages = await tx.coberturaBanco.findMany({
+        where: { bancoId: bankId },
+        select: { departamento: true, municipio: true },
+      });
       const inventory = await tx.inventario.findUnique({
         where: { bancoId_productoId: { bancoId: bankId, productoId: productId } },
       });
@@ -497,9 +550,16 @@ export async function adjustInventory(req: Request, res: Response, next: NextFun
           detalles: { tipo, cantidad, motivo: reason },
         },
       });
-      return updated;
+      return {
+        inventory: updated,
+        coverageRooms: coverageRooms(coverages),
+      };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    res.json(result);
+    publishRealtimeChange(
+      { bankIds: [bankId], roles: ADMIN_ROLES, coverageRooms: result.coverageRooms },
+      { type: 'inventory.updated', resource: 'availability', resourceId: bankId },
+    );
+    res.json(result.inventory);
   } catch (error) {
     next(error);
   }

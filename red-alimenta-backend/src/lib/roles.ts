@@ -5,6 +5,13 @@ export const ADMIN_ROLES: RolUsuario[] = [
   RolUsuario.SUPER_ADMIN,
 ];
 
+export const PRODUCT_VIEWER_ROLES: RolUsuario[] = [
+  ...ADMIN_ROLES,
+  RolUsuario.BANCO,
+  RolUsuario.DONANTE,
+  RolUsuario.BENEFICIARIO,
+];
+
 export function isAdminRole(role: RolUsuario): boolean {
   return ADMIN_ROLES.includes(role);
 }

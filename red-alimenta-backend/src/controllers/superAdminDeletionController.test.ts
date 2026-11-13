@@ -1,6 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isInventoryDeltaSafe } from './superAdminDeletionController';
+import { EstadoEntrega } from '@prisma/client';
+import {
+  deliveryInventoryRestoration,
+  isInventoryDeltaSafe,
+  remainingReservationToRelease,
+} from './superAdminDeletionController';
+
+test('confirmed delivery deletion does not restore distributed inventory', () => {
+  assert.deepEqual(
+    deliveryInventoryRestoration(EstadoEntrega.CONFIRMADA, 4),
+    { stockActual: 0, stockReservado: 0 },
+  );
+  assert.deepEqual(
+    deliveryInventoryRestoration(EstadoEntrega.REGISTRADA, 4),
+    { stockActual: 4, stockReservado: 4 },
+  );
+});
+
+test('request deletion releases only the reservation not consumed by confirmed deliveries', () => {
+  assert.equal(remainingReservationToRelease(10, 4), 6);
+  assert.equal(remainingReservationToRelease(10, 0), 10);
+  assert.equal(remainingReservationToRelease(3, 5), 0);
+});
 
 test('inventory cleanup accepts balanced reversals and reservation releases', () => {
   assert.equal(isInventoryDeltaSafe(12, 3, -5, 0), true);

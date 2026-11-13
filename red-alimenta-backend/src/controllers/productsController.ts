@@ -5,15 +5,8 @@ import multer from 'multer';
 import prisma from '../lib/prisma';
 import { AppError, parseBooleanField } from '../lib/errors';
 import { hasExpectedImageSignature } from '../lib/imageValidation';
-import { ADMIN_ROLES } from '../lib/roles';
+import { PRODUCT_VIEWER_ROLES } from '../lib/roles';
 import { publishRealtimeChange } from '../realtime/RealtimeHub';
-
-const PRODUCT_VIEWER_ROLES = [
-  ...ADMIN_ROLES,
-  RolUsuario.BANCO,
-  RolUsuario.DONANTE,
-  RolUsuario.BENEFICIARIO,
-];
 const MAX_PRODUCT_IMAGE_SIZE = 5 * 1024 * 1024;
 const PRODUCT_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 

@@ -96,6 +96,7 @@ data class AdminUser(
     val rol: String,
     val estado: String,
     val telefono: String?,
+    val fotoPerfilUrl: String? = null,
     val membresias: List<BankMembership> = emptyList(),
 )
 
@@ -122,10 +123,12 @@ data class AdminUserUpdatePayload(
 data class AdminUserDeleteResponse(
     val deleted: Boolean,
     val documentCleanupWarnings: Int,
+    val inventoryCleanupWarnings: Int = 0,
 )
 
 data class DeleteResponse(
     val deleted: Boolean,
+    val warnings: List<String> = emptyList(),
 )
 
 fun isAdminRole(role: String): Boolean = role == "ADMIN_GENERAL" || role == "SUPER_ADMIN"

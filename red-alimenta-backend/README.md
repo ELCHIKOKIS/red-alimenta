@@ -81,7 +81,7 @@ El script guarda la contraseña con el hash scrypt usado por el backend. No esta
 
 ## Superadministrador y eliminación permanente
 
-`SUPER_ADMIN` tiene las mismas funciones operativas que `ADMIN_GENERAL`, además de poder eliminar permanentemente usuarios, bancos, productos, donaciones, solicitudes y entregas. Cada eliminación está protegida por autorización de rol y conserva el historial de auditoría con una instantánea del registro eliminado. Las entregas confirmadas y los cambios de inventario que no se puedan cuadrar bloquean la operación. La promoción no crea otra cuenta ni cambia contraseñas: después de hacer una copia de seguridad y aplicar la migración pendiente, configura temporalmente `SUPER_ADMIN_EMAIL` con el correo de un administrador general activo ya existente y ejecuta:
+`SUPER_ADMIN` tiene las mismas funciones operativas que `ADMIN_GENERAL`, además de poder eliminar permanentemente usuarios, bancos, productos, donaciones, solicitudes y entregas. Android presenta una confirmación que describe el alcance antes de enviar cada eliminación. Se borran también los registros de auditoría relacionados. Las entregas confirmadas se pueden eliminar, pero sus cantidades no se reponen al inventario porque los alimentos ya fueron recibidos. Si una cantidad pendiente no se puede reconciliar con seguridad, el borrado continúa, conserva los valores actuales de inventario y devuelve una advertencia para revisión manual. La promoción no crea otra cuenta ni cambia contraseñas: después de hacer una copia de seguridad y aplicar la migración pendiente, configura temporalmente `SUPER_ADMIN_EMAIL` con el correo de un administrador general activo ya existente y ejecuta:
 
 ```powershell
 npm.cmd run prisma:migrate
@@ -93,7 +93,7 @@ Remove-Item Env:SUPER_ADMIN_EMAIL
 
 La promoción es de una sola ejecución y falla si ya existe un superadministrador o si la cuenta indicada no es un administrador general activo. Elimina `SUPER_ADMIN_EMAIL` del entorno al terminar. No se aplica ninguna migración automáticamente al iniciar la API.
 
-La eliminación se limita a `SUPER_ADMIN`, no permite borrar la propia cuenta ni al último superadministrador activo. Elimina los datos propios de donante o beneficiario, sus solicitudes, donaciones y documentos, además de los registros de auditoría atribuidos al usuario. Las entregas confirmadas no se borran porque representan operaciones físicas completadas. El sistema rechaza también el borrado cuando la trazabilidad de movimientos no permite reconciliar el inventario con seguridad, cuando el stock aceptado ya está reservado o consumido, o cuando un registro legado solo contiene una referencia de texto que no permite asociarlo con seguridad a una cuenta. Esos casos requieren reconciliación manual. Los movimientos de inventario independientes se conservan para mantener la contabilidad y se desvinculan del usuario al borrarlo. Los documentos se eliminan del almacenamiento después de confirmar la transacción; si falla la limpieza, la respuesta indica cuántos archivos requieren revisión.
+La eliminación se limita a `SUPER_ADMIN` y no permite borrar la propia cuenta ni al último superadministrador activo. Al borrar un usuario se eliminan sus perfiles de donante o beneficiario, solicitudes, donaciones, entregas, documentos y auditoría relacionada. Al borrar bancos o productos se eliminan también sus operaciones, inventarios e imágenes dependientes. Los movimientos confirmados no reponen existencias; los ajustes inseguros se omiten y se notifican en la respuesta. Los movimientos no relacionados con los registros eliminados se conservan. Los documentos se eliminan del almacenamiento después de confirmar la transacción; si falla la limpieza, la respuesta indica cuántos archivos requieren revisión.
 
 ## Ejecutar
 
@@ -128,6 +128,8 @@ Los usuarios autenticados pueden actualizar su perfil en `PATCH /api/auth/me`. S
 Los documentos de verificación aceptan PDF, JPEG o PNG hasta 5 MB y se almacenan localmente en `storage/documents` por defecto. `DOCUMENTS_DIR` permite configurar otra ubicación; no se debe exponer esa carpeta públicamente.
 
 Las fotografías de productos aceptan JPEG, PNG o WebP hasta 5 MB. Se guardan en la tabla `imagenes_productos` de MySQL, por lo que están disponibles en otros dispositivos y no dependen del disco temporal de Render. Los productos existentes conservan `imagenUrl = null` y usan las ilustraciones locales de Android por categoría.
+
+Las fotografías de perfil también se almacenan en MySQL. Cada usuario autenticado puede consultar su propia foto; `GET /api/admin/users/:id/photo` permite que `ADMIN_GENERAL` y `SUPER_ADMIN` vean las fotos desde la lista de usuarios, con autorización autenticada.
 
 ## Pruebas y dependencias
 

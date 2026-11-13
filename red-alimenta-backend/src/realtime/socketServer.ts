@@ -106,9 +106,7 @@ export function createRealtimeSocketServer(
 
     if (identity.accountStatus === EstadoCuenta.ACTIVA) {
       socket.join(identity.bankIds.map(bankRoom));
-      if (identity.role === RolUsuario.ADMIN_GENERAL || identity.role === RolUsuario.SUPER_ADMIN) {
-        socket.join(roleRoom(identity.role));
-      }
+      socket.join(roleRoom(identity.role));
       if (identity.role === RolUsuario.BENEFICIARIO && identity.beneficiaryCoverage) {
         const { departamento, municipio } = identity.beneficiaryCoverage;
         socket.join([

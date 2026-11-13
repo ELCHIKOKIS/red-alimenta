@@ -555,8 +555,9 @@ private fun MainDashboard(
             text = {
                 Text(
                     "Se eliminará la cuenta de ${userToDelete.nombre} (${userToDelete.email}), " +
-                        "junto con sus solicitudes, donaciones, entregas pendientes y documentos. " +
-                        "El historial de auditoría se conservará. Las entregas confirmadas no se pueden eliminar. " +
+                        "junto con sus solicitudes, donaciones, entregas, documentos y auditoría relacionada. " +
+                        "Las entregas confirmadas se borrarán sin reponer esos alimentos al inventario. " +
+                        "Si el inventario no se puede ajustar con seguridad, quedará igual y deberá revisarse. " +
                         "Esta acción no se puede deshacer.",
                 )
             },
@@ -577,22 +578,20 @@ private fun MainDashboard(
         val details = when (target.kind) {
             DeletionKind.BANK ->
                 "Se eliminarán el banco, sus membresías, inventario, donaciones, solicitudes y entregas relacionadas. " +
-                    "Las cuentas que solo pertenezcan a este banco también se eliminarán. " +
-                    "El historial de auditoría se conservará. Si el inventario no se puede reconciliar o hay " +
-                    "entregas confirmadas, el servidor rechazará el borrado."
+                    "Las cuentas que solo pertenezcan a este banco también se eliminarán, junto con su auditoría relacionada. " +
+                    "Las entregas confirmadas no repondrán alimentos al inventario."
             DeletionKind.PRODUCT ->
                 "Se eliminarán la fotografía, el inventario y los registros relacionados con este producto. " +
-                    "El borrado se bloqueará si queda stock que no pueda reconciliarse o existen entregas confirmadas. " +
-                    "El historial de auditoría se conservará."
+                    "También se borrará la auditoría relacionada. Las entregas confirmadas no repondrán alimentos."
             DeletionKind.DONATION ->
-                "Se eliminará la donación y su movimiento asociado. Si fue aceptada, solo se podrá borrar cuando " +
-                    "el inventario permita retirar esa cantidad sin afectar reservas. El historial de auditoría se conservará."
+                "Se eliminarán la donación, su movimiento y su auditoría relacionada. Si las existencias no se " +
+                    "pueden ajustar de forma segura, el inventario quedará igual para revisión manual."
             DeletionKind.REQUEST ->
-                "Se eliminarán la solicitud, sus detalles y las entregas pendientes asociadas, restaurando el inventario " +
-                    "cuando sea seguro. Las entregas confirmadas bloquean el borrado. El historial de auditoría se conservará."
+                "Se eliminarán la solicitud, sus detalles, las entregas y la auditoría relacionada. Las entregas " +
+                    "confirmadas no repondrán alimentos; si una cantidad no se puede cuadrar, el inventario quedará igual."
             DeletionKind.DELIVERY ->
-                "Solo se pueden eliminar entregas pendientes de confirmación con movimientos de inventario verificables. " +
-                    "El inventario se restaurará y el historial de auditoría se conservará."
+                "Se eliminará la entrega y su auditoría. Una entrega confirmada no repondrá alimentos; una pendiente " +
+                    "solo restaurará inventario si sus movimientos se pueden verificar."
         }
         AlertDialog(
             onDismissRequest = { pendingDeletion = null },
@@ -1099,8 +1098,20 @@ private fun AdminUserList(
             items(users, key = { it.id }) { user ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(user.nombre, fontWeight = FontWeight.SemiBold)
-                        Text(user.email)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ProfilePhoto(
+                                name = user.nombre,
+                                imageUrl = user.fotoPerfilUrl,
+                                modifier = Modifier.size(48.dp),
+                            )
+                            Column {
+                                Text(user.nombre, fontWeight = FontWeight.SemiBold)
+                                Text(user.email)
+                            }
+                        }
                         Text("Rol: ${displayRoleName(user.rol)} · Estado: ${statusLabel(user.estado)}")
                         val banks = user.membresias.joinToString { it.banco.nombre }
                         if (banks.isNotBlank()) Text("Bancos: $banks")

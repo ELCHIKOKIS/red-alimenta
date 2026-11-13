@@ -18,12 +18,14 @@ import {
 import { authenticate, authorize } from '../middleware/authMiddleware';
 import { RolUsuario } from '@prisma/client';
 import { downloadRegistrationDocument } from '../controllers/registrationDocumentsController';
+import { getAdminUserProfileImage } from '../controllers/profileImagesController';
 import { ADMIN_ROLES } from '../lib/roles';
 
 const router = Router();
 
 router.use(authenticate, authorize(...ADMIN_ROLES));
 router.get('/users', listUsers);
+router.get('/users/:id/photo', getAdminUserProfileImage);
 router.patch('/users/:id', updateUser);
 router.delete('/users/:id', authorize(RolUsuario.SUPER_ADMIN), deleteUser);
 router.delete('/banks/:id', authorize(RolUsuario.SUPER_ADMIN), deleteBank);

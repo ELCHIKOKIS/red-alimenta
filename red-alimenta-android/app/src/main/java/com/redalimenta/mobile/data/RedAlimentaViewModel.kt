@@ -274,9 +274,10 @@ class RedAlimentaViewModel(
     }
 
     fun deleteProductPermanently(id: Int) {
-        launchRequest("Producto y registros relacionados eliminados.") {
-            api.deleteProductPermanently(id)
+        launchRequest(null) {
+            val result = api.deleteProductPermanently(id)
             loadData()
+            showDeletionNotice("Producto y registros relacionados eliminados.", result.warnings)
         }
     }
 
@@ -310,9 +311,10 @@ class RedAlimentaViewModel(
     }
 
     fun deleteBank(id: Int) {
-        launchRequest("Banco y registros relacionados eliminados.") {
-            api.deleteBank(id)
+        launchRequest(null) {
+            val result = api.deleteBank(id)
             loadData()
+            showDeletionNotice("Banco y registros relacionados eliminados.", result.warnings)
         }
     }
 
@@ -369,11 +371,18 @@ class RedAlimentaViewModel(
             loadData()
             mutableState.update {
                 it.copy(
-                    notice = if (result.documentCleanupWarnings == 0) {
-                        "Usuario eliminado permanentemente."
-                    } else {
-                        "Usuario eliminado, pero ${result.documentCleanupWarnings} documento(s) requieren limpieza."
-                    },
+                    notice = buildList {
+                        add("Usuario eliminado permanentemente.")
+                        if (result.documentCleanupWarnings > 0) {
+                            add("${result.documentCleanupWarnings} documento(s) requieren limpieza.")
+                        }
+                        if (result.inventoryCleanupWarnings > 0) {
+                            add(
+                                "El inventario de ${result.inventoryCleanupWarnings} combinación(es) " +
+                                    "no se ajustó; revísalo manualmente.",
+                            )
+                        }
+                    }.joinToString(" "),
                 )
             }
         }
@@ -411,9 +420,10 @@ class RedAlimentaViewModel(
     }
 
     fun deleteDonation(id: Int) {
-        launchRequest("Donación eliminada.") {
-            api.deleteDonation(id)
+        launchRequest(null) {
+            val result = api.deleteDonation(id)
             loadData()
+            showDeletionNotice("Donación eliminada.", result.warnings)
         }
     }
 
@@ -444,9 +454,10 @@ class RedAlimentaViewModel(
     }
 
     fun deleteFoodRequest(id: Int) {
-        launchRequest("Solicitud y entregas pendientes relacionadas eliminadas.") {
-            api.deleteRequest(id)
+        launchRequest(null) {
+            val result = api.deleteRequest(id)
             loadData()
+            showDeletionNotice("Solicitud y entregas relacionadas eliminadas.", result.warnings)
         }
     }
 
@@ -464,9 +475,10 @@ class RedAlimentaViewModel(
     }
 
     fun deleteDelivery(id: Int) {
-        launchRequest("Entrega pendiente eliminada.") {
-            api.deleteDelivery(id)
+        launchRequest(null) {
+            val result = api.deleteDelivery(id)
             loadData()
+            showDeletionNotice("Entrega eliminada.", result.warnings)
         }
     }
 
@@ -663,6 +675,7 @@ class RedAlimentaViewModel(
                 if (successMessage != null) {
                     mutableState.update { it.copy(notice = successMessage) }
                 }
+
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -675,6 +688,12 @@ class RedAlimentaViewModel(
             } finally {
                 mutableState.update { it.copy(isLoading = false) }
             }
+        }
+    }
+
+    private fun showDeletionNotice(message: String, warnings: List<String>) {
+        mutableState.update {
+            it.copy(notice = if (warnings.isEmpty()) message else "$message ${warnings.joinToString(" ")}")
         }
     }
 

@@ -14,8 +14,11 @@ import {
 import prisma from '../lib/prisma';
 import { AppError, parsePositiveInteger } from '../lib/errors';
 import { getDocumentsDirectory } from './registrationDocumentsController';
+import {
+  deliveryInventoryRestoration,
+  remainingReservationToRelease,
+} from './superAdminDeletionController';
 import { ADMIN_ROLES, isSuperAdmin } from '../lib/roles';
-import { preserveUserAuditActor } from './superAdminDeletionController';
 import {
   disconnectRealtimeUser,
   publishRealtimeChange,
@@ -70,6 +73,7 @@ export async function listUsers(req: Request, res: Response, next: NextFunction)
           estado: true,
           telefono: true,
           createdAt: true,
+          fotoPerfil: { select: { actualizadaEn: true } },
           membresias: { include: { banco: { select: { id: true, nombre: true } } } },
         },
         orderBy: { id: 'asc' },
@@ -81,7 +85,12 @@ export async function listUsers(req: Request, res: Response, next: NextFunction)
       prisma.usuario.groupBy({ by: ['estado'], _count: { _all: true } }),
     ]);
     res.json({
-      items: users,
+      items: users.map(({ fotoPerfil, ...user }) => ({
+        ...user,
+        fotoPerfilUrl: fotoPerfil
+          ? `/api/admin/users/${user.id}/photo?v=${fotoPerfil.actualizadaEn.getTime()}`
+          : null,
+      })),
       total,
       limit,
       offset: offsetValue,
@@ -211,7 +220,7 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
       throw new AppError('No puedes eliminar permanentemente tu propia cuenta.', 409);
     }
 
-    const storedDocumentNames = await prisma.$transaction(async (tx) => {
+    const cleanup = await prisma.$transaction(async (tx) => {
       const user = await tx.usuario.findUnique({
         where: { id: userId },
         include: {
@@ -220,41 +229,13 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
         },
       });
       if (!user) throw new AppError('No se encontró el usuario.', 404);
-      if (user.donante) {
-        const donorReferences = [user.nombre, user.email, user.donante.organizacion]
-          .filter((reference): reference is string => Boolean(reference));
-        const legacyDonations = await tx.donacion.count({
-          where: {
-            donanteId: null,
-            donante_referencia: { in: donorReferences },
-          },
-        });
-        if (legacyDonations > 0) {
-          throw new AppError(
-            'La cuenta tiene donaciones antiguas sin un donante vinculado; revísalas antes de eliminarla.',
-            409,
-          );
-        }
-      }
-      if (user.beneficiario) {
-        const beneficiaryReferences = [
-          user.nombre,
-          user.email,
-          user.beneficiario.nombreOrganizacion,
-        ];
-        const legacyDeliveries = await tx.entrega.count({
-          where: {
-            beneficiarioId: null,
-            beneficiario_referencia: { in: beneficiaryReferences },
-          },
-        });
-        if (legacyDeliveries > 0) {
-          throw new AppError(
-            'La cuenta tiene entregas antiguas sin un beneficiario vinculado; revísalas antes de eliminarla.',
-            409,
-          );
-        }
-      }
+      const donorReferences = [user.nombre, user.email, user.donante?.organizacion]
+        .filter((reference): reference is string => Boolean(reference));
+      const beneficiaryReferences = [
+        user.nombre,
+        user.email,
+        user.beneficiario?.nombreOrganizacion,
+      ].filter((reference): reference is string => Boolean(reference));
       if (user.rol === RolUsuario.SUPER_ADMIN) {
         const activeSuperAdmins = await tx.usuario.count({
           where: { rol: RolUsuario.SUPER_ADMIN, estado: EstadoCuenta.ACTIVA },
@@ -290,6 +271,12 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
       const requestIds = requests.map((request) => request.id);
       const deliveryConditions: Prisma.EntregaWhereInput[] = [];
       if (user.beneficiario) deliveryConditions.push({ beneficiarioId: user.beneficiario.id });
+      if (user.beneficiario && beneficiaryReferences.length) {
+        deliveryConditions.push({
+          beneficiarioId: null,
+          beneficiario_referencia: { in: beneficiaryReferences },
+        });
+      }
       if (requestIds.length) deliveryConditions.push({ solicitudId: { in: requestIds } });
       const deliveries = deliveryConditions.length
         ? await tx.entrega.findMany({
@@ -307,53 +294,15 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
         })
         : [];
 
-      if (deliveries.some((delivery) => delivery.estado === EstadoEntrega.CONFIRMADA)) {
-        throw new AppError(
-          'La cuenta tiene entregas confirmadas; eliminarlas alteraría transacciones ya completadas.',
-          409,
-        );
-      }
-      const requestIdSet = new Set(requestIds);
-      const requestDetails = new Map(
-        requests.flatMap((request) => request.detalles.map((detail) => [detail.id, detail] as const)),
-      );
-      const deliveredByDetail = new Map<number, number>();
+      const confirmedByDetail = new Map<number, number>();
       for (const delivery of deliveries) {
-        if (
-          !delivery.solicitudId
-          || !requestIdSet.has(delivery.solicitudId)
-          || !delivery.bancoId
-          || delivery.detalles.length === 0
-          || delivery.detalles.some((detail) => (
-            !detail.movimiento
-            || detail.movimiento.tipo !== TipoMovimientoInventario.ENTREGA_REGISTRADA
-            || detail.movimiento.cantidad !== detail.cantidad
-            || detail.movimiento.bancoId !== delivery.bancoId
-            || detail.movimiento.productoId !== detail.productoId
-            || detail.detalleSolicitud.solicitudId !== delivery.solicitudId
-            || detail.detalleSolicitud.productoId !== detail.productoId
-            || !requestDetails.has(detail.detalleSolicitudId)
-          ))
-        ) {
-          throw new AppError(
-            'La cuenta tiene una entrega sin seguimiento o inconsistente; revisa el inventario antes de eliminarla.',
-            409,
-          );
-        }
+        if (delivery.estado !== EstadoEntrega.CONFIRMADA) continue;
         for (const detail of delivery.detalles) {
-          deliveredByDetail.set(
+          confirmedByDetail.set(
             detail.detalleSolicitudId,
-            (deliveredByDetail.get(detail.detalleSolicitudId) ?? 0) + detail.cantidad,
+            (confirmedByDetail.get(detail.detalleSolicitudId) ?? 0) + detail.cantidad,
           );
         }
-      }
-      if (Array.from(requestDetails.values()).some((detail) => (
-        (deliveredByDetail.get(detail.id) ?? 0) > detail.cantidadAprobada
-      ))) {
-        throw new AppError(
-          'Las cantidades entregadas superan las aprobadas; revisa el inventario antes de eliminar la cuenta.',
-          409,
-        );
       }
 
       const inventoryChanges = new Map<string, {
@@ -374,22 +323,36 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
 
       for (const request of requests) {
         for (const detail of request.detalles) {
-          if (detail.cantidadAprobada > 0) {
-            inventoryChange(request.bancoId, detail.productoId).stockReservado -= detail.cantidadAprobada;
+          const remainingReservation = remainingReservationToRelease(
+            detail.cantidadAprobada,
+            confirmedByDetail.get(detail.id) ?? 0,
+          );
+          if (remainingReservation > 0) {
+            inventoryChange(request.bancoId, detail.productoId).stockReservado -= remainingReservation;
           }
         }
       }
       const deliveryIds = deliveries.map((delivery) => delivery.id);
       for (const delivery of deliveries) {
-        if (!delivery.bancoId) {
-          throw new AppError('Una entrega no tiene banco asociado; revisa el inventario antes de eliminar la cuenta.', 409);
-        }
+        if (!delivery.bancoId) continue;
         for (const detail of delivery.detalles) {
+          const restoration = deliveryInventoryRestoration(delivery.estado, detail.cantidad);
+          if (restoration.stockActual === 0 && restoration.stockReservado === 0) continue;
+          if (
+            !detail.movimiento
+            || detail.movimiento.tipo !== TipoMovimientoInventario.ENTREGA_REGISTRADA
+            || detail.movimiento.cantidad !== detail.cantidad
+            || detail.movimiento.bancoId !== delivery.bancoId
+            || detail.movimiento.productoId !== detail.productoId
+            || delivery.solicitudId && detail.detalleSolicitud.solicitudId !== delivery.solicitudId
+            || detail.detalleSolicitud.productoId !== detail.productoId
+          ) continue;
           const change = inventoryChange(delivery.bancoId, detail.productoId);
-          change.stockActual += detail.cantidad;
-          change.stockReservado += detail.cantidad;
+          change.stockActual += restoration.stockActual;
+          change.stockReservado += restoration.stockReservado;
         }
       }
+      let inventoryCleanupWarnings = 0;
       for (const change of inventoryChanges.values()) {
         const inventory = await tx.inventario.findUnique({
           where: {
@@ -399,28 +362,28 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
             },
           },
         });
-        if (
-          !inventory
-          || inventory.stockReservado + change.stockReservado < 0
-          || inventory.stockActual + change.stockActual
-            < inventory.stockReservado + change.stockReservado
-        ) {
-          throw new AppError(
-            'No se puede cuadrar el inventario de forma segura; ajusta las existencias antes de eliminar la cuenta.',
-            409,
-          );
+        if (!inventory) {
+          inventoryCleanupWarnings += 1;
+          continue;
         }
         if (deliveries.some((delivery) => (
           delivery.bancoId === change.bancoId
+          && delivery.estado !== EstadoEntrega.CONFIRMADA
           && delivery.detalles.some((detail) => (
             detail.productoId === change.productoId
             && detail.movimiento?.inventarioId !== inventory.id
           ))
         ))) {
-          throw new AppError(
-            'Una entrega apunta a otro registro de inventario; revísala antes de eliminar la cuenta.',
-            409,
-          );
+          inventoryCleanupWarnings += 1;
+          continue;
+        }
+        if (
+          inventory.stockReservado + change.stockReservado < 0
+          || inventory.stockActual + change.stockActual
+            < inventory.stockReservado + change.stockReservado
+        ) {
+          inventoryCleanupWarnings += 1;
+          continue;
         }
         await tx.inventario.update({
           where: { id: inventory.id },
@@ -436,6 +399,12 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
           OR: [
             ...(user.donante ? [{ donanteId: user.donante.id }] : []),
             ...(user.beneficiario ? [{ beneficiarioId: user.beneficiario.id }] : []),
+            ...(user.donante
+              ? [{
+                donanteId: null,
+                donante_referencia: { in: donorReferences },
+              }]
+              : []),
           ],
         },
         select: {
@@ -456,10 +425,8 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
             || movements[0].tipo !== TipoMovimientoInventario.DONACION_ACEPTADA
             || movements[0].cantidad !== donation.cantidad
           ) {
-            throw new AppError(
-              'Una donación aceptada no tiene un movimiento de inventario verificable; revísala antes de eliminar la cuenta.',
-              409,
-            );
+            inventoryCleanupWarnings += 1;
+            continue;
           }
           const inventory = await tx.inventario.findUnique({
             where: {
@@ -474,20 +441,13 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
             || movements[0].inventarioId !== inventory.id
             || inventory.stockActual - donation.cantidad < inventory.stockReservado
           ) {
-            throw new AppError(
-              'Las existencias de una donación aceptada están reservadas o consumidas; ajusta el inventario antes de eliminar la cuenta.',
-              409,
-            );
+            inventoryCleanupWarnings += 1;
+            continue;
           }
           await tx.inventario.update({
             where: { id: inventory.id },
             data: { stockActual: { decrement: donation.cantidad } },
           });
-        } else if (movements.length > 0) {
-          throw new AppError(
-            'El historial de inventario de una donación no coincide; revísalo antes de eliminar la cuenta.',
-            409,
-          );
         }
       }
 
@@ -505,7 +465,6 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
         await tx.detalleSolicitud.deleteMany({ where: { solicitudId: { in: requestIds } } });
         await tx.solicitudAlimentos.deleteMany({ where: { id: { in: requestIds } } });
       }
-
       const donationIds = donations.map((donation) => donation.id);
       if (donationIds.length) {
         await tx.movimientoInventario.deleteMany({ where: { donacionId: { in: donationIds } } });
@@ -517,27 +476,50 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
         });
         await tx.solicitudRegistro.deleteMany({ where: { id: { in: registrationIds } } });
       }
-      await preserveUserAuditActor(tx, user);
+      const auditCleanup: Prisma.AuditoriaWhereInput[] = [
+        { usuarioId: userId },
+        { entidad: 'Usuario', entidadId: String(userId) },
+      ];
+      if (registrationIds.length) {
+        auditCleanup.push({
+          entidad: 'SolicitudRegistro',
+          entidadId: { in: registrationIds.map(String) },
+        });
+      }
+      if (requestIds.length) {
+        auditCleanup.push({
+          entidad: 'SolicitudAlimentos',
+          entidadId: { in: requestIds.map(String) },
+        });
+      }
+      if (deliveryIds.length) {
+        auditCleanup.push({
+          entidad: 'Entrega',
+          entidadId: { in: deliveryIds.map(String) },
+        });
+      }
+      if (donationIds.length) {
+        auditCleanup.push({
+          entidad: 'Donacion',
+          entidadId: { in: donationIds.map(String) },
+        });
+      }
+      await tx.auditoria.deleteMany({ where: { OR: auditCleanup } });
+      await tx.fotoPerfil.deleteMany({ where: { usuarioId: userId } });
       await tx.membresiaBanco.deleteMany({ where: { usuarioId: userId } });
       if (user.donante) await tx.donante.delete({ where: { id: user.donante.id } });
       if (user.beneficiario) {
         await tx.beneficiario.delete({ where: { id: user.beneficiario.id } });
       }
-      await tx.auditoria.create({
-        data: {
-          usuarioId: req.auth!.userId,
-          accion: 'USUARIO_ELIMINADO',
-          entidad: 'Usuario',
-          entidadId: String(user.id),
-          detalles: { nombre: user.nombre, email: user.email, rol: user.rol },
-        },
-      });
       await tx.usuario.delete({ where: { id: userId } });
-      return documents.map((document) => document.nombreAlmacenado);
+      return {
+        documentNames: documents.map((document) => document.nombreAlmacenado),
+        inventoryCleanupWarnings,
+      };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 });
 
     let documentCleanupWarnings = 0;
-    for (const storedName of storedDocumentNames) {
+    for (const storedName of cleanup.documentNames) {
       if (!/^[0-9a-f-]{36}\.(pdf|jpg|png)$/i.test(storedName)) {
         documentCleanupWarnings += 1;
         console.error('Unable to remove verification document with an invalid stored name');
@@ -557,7 +539,11 @@ export async function deleteUser(req: Request, res: Response, next: NextFunction
       { type: 'user.deleted', resource: 'users', resourceId: userId },
     );
     disconnectRealtimeUser(userId);
-    res.json({ deleted: true, documentCleanupWarnings });
+    res.json({
+      deleted: true,
+      documentCleanupWarnings,
+      inventoryCleanupWarnings: cleanup.inventoryCleanupWarnings,
+    });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       return next(new AppError('No se encontró el usuario.', 404));

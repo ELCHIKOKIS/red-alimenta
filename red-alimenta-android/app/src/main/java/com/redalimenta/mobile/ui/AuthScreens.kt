@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -86,7 +87,24 @@ fun AuthScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         AuthIllustration(registering)
-        Text("RED-ALIMENTA", style = MaterialTheme.typography.headlineMedium)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                modifier = Modifier.size(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.primary,
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher_foreground),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Text("RED-ALIMENTA", style = MaterialTheme.typography.headlineMedium)
+        }
         AnimatedContent(targetState = registering, label = "auth-description") { isRegistering ->
             Text(
                 if (isRegistering) "Crea una cuenta de donante u organización beneficiaria."

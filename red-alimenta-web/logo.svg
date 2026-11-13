@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 72" fill="none">
+  <defs>
+    <linearGradient id="purple" x1="4" y1="4" x2="68" y2="68" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7959E8"/>
+      <stop offset="1" stop-color="#4B32AF"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="64" height="64" rx="19" fill="url(#purple)"/>
+  <path d="M36 37V20" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M35 29c-7.4-.2-11.2-4-11-10.7C30.8 18.4 35 22.2 35 29Z" fill="#DDF5B5"/>
+  <path d="M37 27c.5-8.1 5.4-12.7 12.7-13.2-.5 7.8-5.1 12.6-12.7 13.2Z" fill="#fff"/>
+  <path d="M15.5 37h41C54.4 49.2 47.5 56 36 56s-18.4-6.8-20.5-19Z" fill="#fff"/>
+  <path d="M22 44h28" stroke="#C9BBFF" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M25 61h22" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/>
+  <text x="82" y="47" fill="#242137" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800" letter-spacing="-1.1">RED<tspan fill="#6848D6">-</tspan>ALIMENTA</text>
+</svg>

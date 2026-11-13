@@ -45,6 +45,10 @@ interface ApiService {
     @PATCH("api/auth/me")
     suspend fun updateProfile(@Body payload: ProfileUpdatePayload): Map<String, Any>
 
+    @Multipart
+    @POST("api/auth/me/photo")
+    suspend fun uploadProfilePhoto(@Part imagen: MultipartBody.Part): ProfilePhotoUploadResponse
+
     @GET("api/products")
     suspend fun getProducts(): List<Product>
 

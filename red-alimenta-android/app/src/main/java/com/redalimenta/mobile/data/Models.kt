@@ -9,6 +9,7 @@ data class User(
     val rol: String,
     val estado: String,
     val telefono: String? = null,
+    val fotoPerfilUrl: String? = null,
     val donante: DonorProfile? = null,
     val beneficiario: BeneficiaryProfile? = null,
     val membresias: List<BankMembership> = emptyList(),
@@ -351,6 +352,10 @@ data class ProfileUpdatePayload(
     val tipoOrganizacion: String? = null,
     val departamento: String? = null,
     val municipio: String? = null,
+)
+
+data class ProfilePhotoUploadResponse(
+    val fotoPerfilUrl: String,
 )
 
 data class RegisterPayload(

@@ -226,7 +226,7 @@ class RedAlimentaViewModel(
     fun saveProduct(
         id: Int?,
         product: ProductPayload,
-        image: ProductImageUpload? = null,
+        image: ImageUpload? = null,
         removeImage: Boolean = false,
     ) {
         launchRequest(if (id == null) "Producto creado." else "Producto actualizado.") {
@@ -336,6 +336,20 @@ class RedAlimentaViewModel(
             val user = api.currentUser()
             mutableState.update { it.copy(user = user) }
             if (user.estado == "ACTIVA") loadData()
+        }
+    }
+
+    fun uploadProfilePhoto(image: ImageUpload) {
+        launchRequest("Foto de perfil actualizada.") {
+            val part = MultipartBody.Part.createFormData(
+                "imagen",
+                image.fileName,
+                image.content.toRequestBody(image.mimeType.toMediaTypeOrNull()),
+            )
+            val response = api.uploadProfilePhoto(part)
+            mutableState.update { current ->
+                current.copy(user = current.user?.copy(fotoPerfilUrl = response.fotoPerfilUrl))
+            }
         }
     }
 

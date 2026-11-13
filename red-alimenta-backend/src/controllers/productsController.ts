@@ -4,6 +4,7 @@ import { Prisma, RolUsuario } from '@prisma/client';
 import multer from 'multer';
 import prisma from '../lib/prisma';
 import { AppError, parseBooleanField } from '../lib/errors';
+import { hasExpectedImageSignature } from '../lib/imageValidation';
 import { ADMIN_ROLES } from '../lib/roles';
 import { publishRealtimeChange } from '../realtime/RealtimeHub';
 
@@ -27,21 +28,6 @@ export const productImageUpload = multer({
     callback(null, true);
   },
 }).single('imagen');
-
-export function hasExpectedProductImageSignature(mimeType: string, buffer: Buffer): boolean {
-  if (mimeType === 'image/jpeg') {
-    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
-  }
-  if (mimeType === 'image/png') {
-    return buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  }
-  if (mimeType === 'image/webp') {
-    return buffer.length >= 12
-      && buffer.subarray(0, 4).toString('ascii') === 'RIFF'
-      && buffer.subarray(8, 12).toString('ascii') === 'WEBP';
-  }
-  return false;
-}
 
 function getProductImageUrl(productId: number): string {
   return `/api/products/${productId}/image?v=${randomUUID()}`;
@@ -160,7 +146,7 @@ export async function getProductById(req: Request, res: Response, next: NextFunc
 export async function createProduct(req: Request, res: Response, next: NextFunction) {
   try {
     const payload = normalizeProductPayload(req.body);
-    if (req.file && !hasExpectedProductImageSignature(req.file.mimetype, req.file.buffer)) {
+    if (req.file && !hasExpectedImageSignature(req.file.mimetype, req.file.buffer)) {
       throw new AppError('Image contents do not match the declared file type', 400);
     }
 
@@ -247,7 +233,7 @@ export async function updateProduct(req: Request, res: Response, next: NextFunct
     if (req.file && clearImage) {
       throw new AppError('Choose a new image or remove the current image, not both', 400);
     }
-    if (req.file && !hasExpectedProductImageSignature(req.file.mimetype, req.file.buffer)) {
+    if (req.file && !hasExpectedImageSignature(req.file.mimetype, req.file.buffer)) {
       throw new AppError('Image contents do not match the declared file type', 400);
     }
     const payload = normalizeProductPayload({

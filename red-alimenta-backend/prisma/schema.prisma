@@ -101,6 +101,7 @@ model Usuario {
   telefono                     String?                @db.VarChar(30)
   createdAt                    DateTime               @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt                    DateTime               @updatedAt @map("updated_at") @db.DateTime(3)
+  fotoPerfil                   FotoPerfil?
   sesiones                     Sesion[]
   membresias                   MembresiaBanco[]
   donante                      Donante?
@@ -280,6 +281,17 @@ model ImagenProducto {
   producto      Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
 
   @@map("imagenes_productos")
+}
+
+model FotoPerfil {
+  id            Int      @id @default(autoincrement())
+  usuarioId     Int      @unique @map("usuario_id")
+  tipoMime      String   @map("tipo_mime") @db.VarChar(50)
+  contenido     Bytes    @db.LongBlob
+  actualizadaEn DateTime @updatedAt @map("actualizada_en") @db.DateTime(3)
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@map("fotos_perfil")
 }
 
 model Inventario {

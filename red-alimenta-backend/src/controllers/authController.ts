@@ -397,6 +397,7 @@ export async function currentUser(req: Request, res: Response, next: NextFunctio
         rol: true,
         estado: true,
         telefono: true,
+        fotoPerfil: { select: { actualizadaEn: true } },
         donante: { select: { organizacion: true, direccion: true } },
         beneficiario: {
           select: {
@@ -425,7 +426,13 @@ export async function currentUser(req: Request, res: Response, next: NextFunctio
     if (!user) {
       throw new AppError('User not found', 404);
     }
-    res.json(user);
+    const { fotoPerfil, ...profile } = user;
+    res.json({
+      ...profile,
+      fotoPerfilUrl: fotoPerfil
+        ? `/api/auth/me/photo?v=${fotoPerfil.actualizadaEn.getTime()}`
+        : null,
+    });
   } catch (error) {
     next(error);
   }

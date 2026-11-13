@@ -12,18 +12,29 @@ import android.provider.OpenableColumns
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 
-data class ProductImageUpload(
+data class ImageUpload(
     val fileName: String,
     val mimeType: String,
     val content: ByteArray,
 )
 
-fun prepareProductImageUpload(context: Context, uri: Uri): ProductImageUpload {
+fun prepareProductImageUpload(context: Context, uri: Uri): ImageUpload =
+    prepareImageUpload(context, uri, "producto", 1600)
+
+fun prepareProfileImageUpload(context: Context, uri: Uri): ImageUpload =
+    prepareImageUpload(context, uri, "perfil", 512)
+
+private fun prepareImageUpload(
+    context: Context,
+    uri: Uri,
+    filePrefix: String,
+    maxDimension: Int,
+): ImageUpload {
     val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         ImageDecoder.decodeBitmap(
             ImageDecoder.createSource(context.contentResolver, uri),
         ) { decoder, info, _ ->
-            val scale = minOf(1f, 1600f / maxOf(info.size.width, info.size.height))
+            val scale = minOf(1f, maxDimension.toFloat() / maxOf(info.size.width, info.size.height))
             if (scale < 1f) {
                 decoder.setTargetSize(
                     (info.size.width * scale).toInt().coerceAtLeast(1),
@@ -41,7 +52,10 @@ fun prepareProductImageUpload(context: Context, uri: Uri): ProductImageUpload {
             "No se pudo leer la imagen seleccionada."
         }
         var sampleSize = 1
-        while (bounds.outWidth / sampleSize > 1600 || bounds.outHeight / sampleSize > 1600) {
+        while (
+            bounds.outWidth / sampleSize > maxDimension
+            || bounds.outHeight / sampleSize > maxDimension
+        ) {
             sampleSize *= 2
         }
         val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
@@ -70,12 +84,12 @@ fun prepareProductImageUpload(context: Context, uri: Uri): ProductImageUpload {
                     "No se pudo preparar la fotografía."
                 }
                 quality -= 10
-            } while (compressed.size() > MAX_PRODUCT_IMAGE_BYTES && quality >= 55)
+            } while (compressed.size() > MAX_IMAGE_UPLOAD_BYTES && quality >= 55)
         } finally {
             if (uploadBitmap !== bitmap) uploadBitmap.recycle()
         }
 
-        require(compressed.size() <= MAX_PRODUCT_IMAGE_BYTES) {
+        require(compressed.size() <= MAX_IMAGE_UPLOAD_BYTES) {
             "La imagen sigue superando el límite de 5 MB después de comprimirla."
         }
         val selectedName = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -86,9 +100,9 @@ fun prepareProductImageUpload(context: Context, uri: Uri): ProductImageUpload {
             .substringBeforeLast('.', selectedName)
             .replace(Regex("[^A-Za-z0-9_-]"), "_")
             .take(80)
-            .ifBlank { "producto" }
+            .ifBlank { filePrefix }
 
-        return ProductImageUpload(
+        return ImageUpload(
             fileName = "${safeName}_${UUID.randomUUID()}.jpg",
             mimeType = "image/jpeg",
             content = compressed.toByteArray(),
@@ -98,4 +112,4 @@ fun prepareProductImageUpload(context: Context, uri: Uri): ProductImageUpload {
     }
 }
 
-private const val MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024
+private const val MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024

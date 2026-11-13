@@ -6,6 +6,7 @@ RED-ALIMENTA es una plataforma para una red de bancos de alimentos. Incluye una 
 
 - [`red-alimenta-android/`](./red-alimenta-android/): aplicación Android desarrollada con Kotlin y Jetpack Compose.
 - [`red-alimenta-backend/`](./red-alimenta-backend/): API REST desarrollada con Node.js, TypeScript, Express, Prisma y MySQL.
+- [`red-alimenta-web/`](./red-alimenta-web/): página estática de presentación de RED-ALIMENTA.
 
 Cada proyecto tiene su propio README con detalles y comandos específicos:
 
@@ -40,6 +41,17 @@ http://localhost:4000/health
 Abre en Android Studio la carpeta `red-alimenta-android`, sincroniza Gradle, selecciona un emulador y ejecuta la configuración `app`.
 
 La URL predeterminada de desarrollo para el emulador es `http://10.0.2.2:4000/`; esta dirección permite que el emulador acceda al backend que se ejecuta en el equipo anfitrión.
+
+## Publicar la página de presentación
+
+La carpeta `red-alimenta-web` contiene una página estática sin dependencias ni proceso de compilación. Para publicarla en Render, crea un servicio **Static Site** conectado a este repositorio y configura:
+
+- Branch: `main`
+- Root Directory: `red-alimenta-web`
+- Build Command: dejar vacío
+- Publish Directory: `.`
+
+El botón de descarga apunta a la última GitHub Release y espera el archivo `red-alimenta-1.1.apk`.
 
 ## Seguridad y configuración
 
